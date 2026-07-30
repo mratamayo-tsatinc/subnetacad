@@ -1,0 +1,753 @@
+:root {
+  --bg-primary: #0f172a;
+  --bg-surface: #1e293b;
+  --bg-surface-2: #253247;
+  --border-soft: #32405a;
+
+  --text-primary: #e2e8f0;
+  --text-secondary: #94a3b8;
+  --text-dim: #64748b;
+
+  --locked: #3b82f6;
+  --locked-soft: rgba(59, 130, 246, 0.16);
+  --borrowed: #f59e0b;
+  --borrowed-soft: rgba(245, 158, 11, 0.16);
+  --host: #10b981;
+  --host-soft: rgba(16, 185, 129, 0.16);
+  --network-id: #ef4444;
+  --network-id-soft: rgba(239, 68, 68, 0.14);
+  --broadcast: #eab308;
+  --broadcast-soft: rgba(234, 179, 8, 0.16);
+
+  --font-ui: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", "Fira Code", "Courier New", monospace;
+
+  --radius-md: 10px;
+  --radius-sm: 6px;
+
+  /* Fluid gap tokens for the octet/bit rows. Cell WIDTHS are no longer set
+     here — they're computed by flexbox (flex:1) so a row of bits or mask
+     octets always sums to exactly 100% of its container, which is what
+     actually guarantees no horizontal overflow (viewport-unit widths drift
+     out of sync with the container's real width at some breakpoints). */
+  --bit-inner-gap: clamp(2px, 0.5vw, 6px);
+  --octet-gap: clamp(10px, 1.6vw, 22px);
+
+  --mask-inner-gap: clamp(1px, 0.3vw, 3px);
+  --mask-octet-gap: clamp(8px, 1.3vw, 20px);
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+}
+
+body {
+  min-height: 100vh;
+  padding-bottom: 40px;
+}
+
+/* ---------- Header ---------- */
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px clamp(16px, 3vw, 48px);
+  border-bottom: 1px solid var(--border-soft);
+  background: linear-gradient(180deg, #111c33 0%, var(--bg-primary) 100%);
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+
+.brand { display: flex; align-items: baseline; gap: 10px; }
+.brand-mark { color: var(--borrowed); font-size: 1.4rem; }
+.brand h1 { font-size: 1.25rem; margin: 0; letter-spacing: -0.01em; }
+.brand-sub { color: var(--text-secondary); font-size: 0.85rem; }
+
+.presenter-toggle {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  color: var(--text-primary);
+  padding: 8px 14px;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-ui);
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.presenter-toggle:hover { border-color: var(--locked); background: var(--bg-surface-2); }
+.presenter-toggle.active {
+  background: var(--locked-soft);
+  border-color: var(--locked);
+  color: #93c5fd;
+}
+
+/* ---------- Layout ---------- */
+.app-main {
+  width: 100%;
+  max-width: 1760px;
+  margin: 0 auto;
+  padding: 24px clamp(16px, 3vw, 48px) 0;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.panel {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  padding: 20px clamp(18px, 2vw, 34px) 24px;
+  width: 100%;
+}
+
+.panel-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+.panel-index {
+  font-family: var(--font-mono);
+  color: var(--text-dim);
+  font-size: 0.8rem;
+  border: 1px solid var(--border-soft);
+  border-radius: 4px;
+  padding: 1px 6px;
+}
+.panel-head h2 { font-size: 1.05rem; margin: 0; font-weight: 600; }
+.panel-meta {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+.panel-hint { font-size: 0.85rem; margin: -4px 0 14px; }
+
+/* ---------- Panel 1 ---------- */
+.octet-input-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+.octet-field { display: flex; flex-direction: column; gap: 4px; }
+.octet-label { font-size: 0.7rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.04em; }
+.octet-field input {
+  width: 76px;
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border-soft);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 1.05rem;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  text-align: center;
+}
+.octet-field input:focus {
+  outline: none;
+  border-color: var(--locked);
+}
+.dot { font-size: 1.4rem; color: var(--text-dim); padding-bottom: 8px; }
+
+.presets-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+.presets-label { font-size: 0.8rem; color: var(--text-secondary); margin-right: 4px; }
+.preset-btn {
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border-soft);
+  color: var(--text-primary);
+  padding: 7px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 0.8rem;
+  font-family: var(--font-mono);
+  cursor: pointer;
+}
+.preset-btn:hover { border-color: var(--host); }
+
+.badges-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.badge {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  padding: 5px 11px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+}
+.badge-class { background: var(--locked-soft); color: #93c5fd; border-color: var(--locked); }
+.badge-cidr { background: var(--host-soft); color: #6ee7b7; border-color: var(--host); }
+.badge-borrow { background: var(--borrowed-soft); color: #fcd34d; border-color: var(--borrowed); }
+
+.warning-banner {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid var(--network-id);
+  color: #fca5a5;
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+.hidden { display: none !important; }
+
+/* ---------- Panel 2 : bit grid ---------- */
+.bit-grid {
+  display: flex;
+  flex-wrap: nowrap;
+  width: 100%;
+  row-gap: 8px;
+  column-gap: var(--octet-gap);
+  align-items: flex-end;
+  position: relative;
+  padding: 10px 6px 4px;
+}
+
+/* Dot separator between octet blocks in the 32-bit grid, echoing the
+   dotted-decimal notation the bits belong to. Aligned to sit roughly level
+   with the bit row itself (not the total/weight row above it). Fixed
+   (non-growing) width — only the octet blocks flex to fill remaining space. */
+.octet-dot-separator {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  flex: 0 0 auto;
+  padding-bottom: clamp(12px, 1.6vw, 18px);
+  font-size: clamp(1rem, 1.6vw, 1.4rem);
+  font-weight: 700;
+  color: var(--text-dim);
+}
+.bit-octet-group {
+  display: flex;
+  width: 100%;
+  gap: var(--bit-inner-gap);
+  position: relative;
+  padding: 4px 0;
+  border-radius: var(--radius-sm);
+}
+/* Each octet block claims an equal 1/4 share of the row's width — this,
+   not a viewport-unit width, is what guarantees the full 32-bit row always
+   fits inside the panel with no horizontal scrollbar, at any screen size. */
+.octet-block {
+  display: flex;
+  flex: 1 1 0;
+  min-width: 0;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  container-type: inline-size;
+}
+.bit-cell {
+  flex: 1 1 0;
+  min-width: 0;
+  aspect-ratio: 0.8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  font-family: var(--font-mono);
+  font-size: clamp(0.55rem, 1.6vw, 1rem);
+  border-radius: 6px;
+  border: 1px solid transparent;
+  position: relative;
+  user-select: none;
+  overflow: hidden;
+}
+.bit-cell.locked {
+  background: var(--locked-soft);
+  border-color: var(--locked);
+  color: #93c5fd;
+  cursor: not-allowed;
+}
+.bit-cell.borrowed {
+  background: var(--borrowed-soft);
+  border-color: var(--borrowed);
+  color: #fcd34d;
+  cursor: pointer;
+}
+.bit-cell.host {
+  background: var(--host-soft);
+  border-color: var(--host);
+  color: #6ee7b7;
+  cursor: pointer;
+}
+.bit-cell:hover.borrowed, .bit-cell:hover.host {
+  filter: brightness(1.25);
+  transform: translateY(-1px);
+}
+.bit-cell .lock-icon { font-size: 0.65rem; position: absolute; top: 2px; }
+.bit-cell .bit-value { margin-top: 6px; }
+
+/* ---------- Positional weight rows (128/64/32/16/8/4/2/1) ---------- */
+/* Shared across every octet visualization: the number is "lit" (bright,
+   bold) when its bit is 1, and "muted" (dim) when its bit is 0 — making the
+   binary-to-decimal summation visually obvious at a glance. */
+.weight-row {
+  display: flex;
+  justify-content: center;
+}
+.weight-num {
+  font-family: var(--font-mono);
+  text-align: center;
+  color: var(--text-dim);
+  transition: color 0.15s ease, opacity 0.15s ease;
+}
+.weight-num.weight-lit {
+  color: var(--text-primary);
+  font-weight: 700;
+  opacity: 1;
+}
+.weight-num.weight-lit-locked {
+  color: var(--locked);
+}
+.weight-num.weight-lit-borrowed {
+  color: var(--borrowed);
+}
+.weight-num.weight-lit-host {
+  color: var(--host);
+}
+.weight-num.weight-muted {
+  opacity: 0.4;
+}
+
+/* Variant: Panel 2 — 32-bit grid. flex:1 numbers mirror the flexible
+   .bit-octet-group exactly (same gap, same equal-share sizing) so each
+   weight always sits centered above its corresponding bit. */
+.weight-row-main {
+  width: 100%;
+  gap: var(--bit-inner-gap);
+}
+.weight-row-main .weight-num {
+  flex: 1 1 0;
+  min-width: 0;
+  font-size: clamp(0.5rem, 1vw, 0.7rem);
+}
+
+/* Variant: Panel 3 — mask comparison. Same flex:1 mirroring against the
+   flexible .mask-bit-row. */
+.weight-row-mask {
+  width: 100%;
+  gap: var(--mask-inner-gap);
+}
+.weight-row-mask .weight-num {
+  flex: 1 1 0;
+  min-width: 0;
+  font-size: clamp(0.5rem, 0.9vw, 0.68rem);
+}
+
+/* Variant: Panels 4 & 5 — compact unified octet cell (matches .u-bit width: 20px) */
+.weight-row-compact {
+  gap: 0;
+}
+.weight-row-compact .weight-num {
+  width: 20px;
+  font-size: 0.55rem;
+}
+
+/* ---------- Octet total badge ---------- */
+/* Sits above the weight row and shows the decimal number the octet's
+   active weights sum to — the "answer" to the summation the weight row
+   demonstrates. Intentionally neutral: no locked/borrowed/host coloring.
+   Ordinary dotted-decimal IP notation (192.168.1.0) carries no visual cue
+   for which bits are network vs. host — that distinction only exists in
+   binary. Coloring the total green (host) or amber (borrowed) would imply
+   a decimal-level distinction that doesn't actually exist, undermining the
+   exact lesson the rest of the visualization teaches. The optional dot
+   (see .octet-total-dot) lets the four totals read left-to-right as the
+   familiar dotted-decimal address the rest of the UI deliberately breaks
+   apart into bits. */
+.octet-total {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  text-align: center;
+}
+.octet-total-dot {
+  color: var(--text-dim);
+  font-weight: 400;
+}
+.octet-total-main {
+  font-size: clamp(0.95rem, 32cqi, 2.5rem);
+}
+.octet-total-mask {
+  font-size: clamp(0.85rem, 28cqi, 2.1rem);
+}
+.octet-total-compact {
+  font-size: clamp(0.6rem, 30cqi, 1.25rem);
+}
+
+/* ---------- Octet label ---------- */
+/* Identifies which octet (1-4) a bit visualization belongs to. Positioned
+   below the bits themselves so the eye reads: total -> math -> bits ->
+   "which octet was that". */
+.octet-viz-label {
+  font-size: 0.65rem;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  text-align: center;
+}
+
+.bit-grid-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 12px;
+}
+.reset-btn {
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border-soft);
+  color: var(--text-secondary);
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+.reset-btn:hover { border-color: var(--host); color: var(--host); }
+
+.legend { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 16px; font-size: 0.78rem; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.swatch { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+.swatch-locked { background: var(--locked); }
+.swatch-borrowed { background: var(--borrowed); }
+.swatch-host { background: var(--host); }
+
+/* ---------- Panel 3 : mask compare ---------- */
+.mask-compare {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+.mask-col { width: 100%; }
+.mask-col h3 { font-size: 0.8rem; color: var(--text-secondary); margin: 0 0 8px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; }
+.mask-binary {
+  font-family: var(--font-mono);
+  font-size: 1rem;
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  padding: 14px;
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: flex-end;
+  column-gap: var(--mask-octet-gap);
+  row-gap: 8px;
+  width: 100%;
+}
+/* Each mask octet block claims an equal 1/4 share of the row — same
+   guaranteed-fit approach as Panel 2's .octet-block, so the mask row never
+   needs a horizontal scrollbar. */
+.mask-octet-block {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  flex: 1 1 0;
+  min-width: 0;
+  gap: 4px;
+  container-type: inline-size;
+}
+.mask-bit-row {
+  display: flex;
+  width: 100%;
+  gap: var(--mask-inner-gap);
+}
+.mask-bit {
+  flex: 1 1 0;
+  min-width: 0;
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  background: var(--bg-primary);
+  font-size: clamp(0.6rem, 1.3vw, 1rem);
+  overflow: hidden;
+}
+/* Dot separator between octets within a single mask's binary row, matching
+   the .octet-dot-separator treatment used in the Panel 2 bit grid. Fixed
+   (non-growing) width — only the mask octet blocks flex to fill space. */
+.mask-dot-separator {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  flex: 0 0 auto;
+  padding-bottom: clamp(9px, 1.3vw, 13px);
+  font-size: clamp(0.9rem, 1.3vw, 1.2rem);
+  font-weight: 700;
+  color: var(--text-dim);
+}
+.mask-binary .bit-1.locked-bit { color: var(--locked); }
+.mask-binary .bit-1.borrowed-bit { color: var(--borrowed); }
+.mask-binary .bit-0 { color: var(--text-dim); }
+.mask-decimal { margin-top: 6px; font-family: var(--font-mono); color: var(--text-secondary); font-size: 0.85rem; }
+.mask-arrow {
+  font-size: 1.3rem;
+  color: var(--borrowed);
+  padding: 2px 0;
+}
+
+.positional-math {
+  font-family: var(--font-mono);
+  background: var(--bg-surface-2);
+  border: 1px dashed var(--borrowed);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  font-size: 0.95rem;
+  margin-bottom: 18px;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+.positional-math .weight-term { color: var(--text-secondary); }
+.positional-math .weight-term.active { color: var(--borrowed); font-weight: 600; }
+.positional-math .equals-result { color: #6ee7b7; font-weight: 700; }
+
+.mask-outputs { display: flex; gap: 14px; flex-wrap: wrap; }
+.output-chip {
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  padding: 8px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.output-label { font-size: 0.7rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.03em; }
+.output-value { font-family: var(--font-mono); font-size: 1rem; color: var(--text-primary); }
+
+/* ---------- Formula toggle & box (Panels 4 & 5) ---------- */
+.formula-toggle-btn {
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border-soft);
+  color: var(--text-secondary);
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+.formula-toggle-btn:hover { border-color: var(--locked); color: #93c5fd; }
+.formula-toggle-btn.active {
+  background: var(--locked-soft);
+  border-color: var(--locked);
+  color: #93c5fd;
+}
+
+.formula-box {
+  font-family: var(--font-mono);
+  background: var(--bg-surface-2);
+  border: 1px dashed var(--border-soft);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  font-size: 0.9rem;
+  margin-bottom: 16px;
+  line-height: 1.8;
+}
+.formula-box.formula-box-subnet { border-color: var(--borrowed); }
+.formula-box.formula-box-host { border-color: var(--host); }
+.formula-box .formula-line { display: block; }
+.formula-box .formula-term { color: var(--text-secondary); }
+.formula-box .formula-highlight-subnet { color: var(--borrowed); font-weight: 700; }
+.formula-box .formula-highlight-host { color: var(--host); font-weight: 700; }
+.formula-box .formula-note {
+  display: block;
+  color: var(--text-dim);
+  font-size: 0.78rem;
+  margin-top: 6px;
+  line-height: 1.5;
+  white-space: normal;
+}
+
+/* ---------- Tables (Panels 4 & 5) ---------- */
+.table-scroll { overflow-x: auto; }
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+}
+.data-table th {
+  text-align: left;
+  padding: 8px 10px;
+  color: var(--text-secondary);
+  font-weight: 600;
+  border-bottom: 1px solid var(--border-soft);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.data-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid rgba(50, 64, 90, 0.5);
+}
+.data-table tbody tr:hover { background: rgba(148, 163, 184, 0.05); }
+.data-table tr.active-row { background: var(--borrowed-soft); }
+.data-table tr.active-row td { color: #fcd34d; }
+
+.icon-col {
+  width: 1%;
+  white-space: nowrap;
+  text-align: center;
+}
+
+.inspect-btn {
+  background: var(--bg-surface-2);
+  border: 1px solid var(--locked);
+  color: #93c5fd;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.inspect-btn:hover { background: var(--locked-soft); }
+.inspect-btn.is-active { background: var(--locked); color: #0b1220; font-weight: 700; }
+
+.expansion-row td {
+  text-align: center;
+  padding: 10px;
+}
+.expansion-btn {
+  background: none;
+  border: 1px dashed var(--text-dim);
+  color: var(--text-secondary);
+  padding: 6px 14px;
+  border-radius: 999px;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+}
+.expansion-btn:hover { border-color: var(--borrowed); color: var(--borrowed); }
+
+/* Panel 4 — Octet Bits column (derived-from binary breakdown) */
+.octet-bits-cell,
+td .deriv-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.78rem;
+}
+.deriv-label { color: var(--text-dim); white-space: nowrap; }
+
+.octet-bits-group {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 2px;
+  margin-right: 10px;
+  vertical-align: top;
+  container-type: inline-size;
+}
+.octet-bits-group:last-child { margin-right: 0; }
+.octet-bits-row {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  align-items: flex-start;
+}
+.nowrap-cell {
+  white-space: nowrap;
+}
+
+/* Unified octet cell */
+.unified-octet-cell {
+  display: inline-flex;
+  border: 1px solid var(--border-soft);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.unified-octet-cell .u-bit {
+  width: 20px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.72rem;
+  position: relative;
+}
+.unified-octet-cell .u-bit.locked-bit { background: var(--locked-soft); color: #93c5fd; }
+.unified-octet-cell .u-bit.borrowed-bit { background: var(--borrowed-soft); color: #fcd34d; }
+.unified-octet-cell .u-bit.host-bit { background: var(--host-soft); color: #6ee7b7; }
+.unified-octet-cell .u-bit.curtain-before::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  border-right: 2px dashed var(--borrowed);
+}
+
+.badge-role {
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.role-network { background: var(--network-id-soft); color: #fca5a5; border-color: var(--network-id); }
+.role-first { background: var(--host-soft); color: #6ee7b7; border-color: var(--host); }
+.role-last { background: var(--host-soft); color: #6ee7b7; border-color: var(--host); }
+.role-usable { background: rgba(16, 185, 129, 0.08); color: #a7f3d0; border-color: rgba(16,185,129,0.3); }
+.role-broadcast { background: var(--broadcast-soft); color: #fde68a; border-color: var(--broadcast); }
+
+/* ---------- Footer ---------- */
+.app-footer {
+  text-align: center;
+  font-size: 0.78rem;
+  margin-top: 30px;
+  padding: 0 20px;
+}
+
+/* ---------- Presenter Mode ---------- */
+body.presenter-mode {
+  font-size: 1.2em;
+}
+body.presenter-mode .secondary-copy {
+  display: none;
+}
+body.presenter-mode .panel {
+  border-width: 2px;
+}
+body.presenter-mode .bit-cell {
+  font-size: clamp(0.65rem, 2vw, 1.3rem);
+}
+body.presenter-mode .weight-row-main .weight-num {
+  font-size: clamp(0.55rem, 1.3vw, 0.85rem);
+}
+
+/* ---------- Responsive ---------- */
+@media (max-width: 640px) {
+  .app-header { padding: 14px 16px; }
+  .octet-field input { width: 58px; }
+  .bit-grid { column-gap: 6px; }
+  .mask-binary { column-gap: 6px; }
+  .bit-cell { font-size: 0.6rem; }
+  .weight-row-main .weight-num { font-size: 0.48rem; }
+  .mask-bit { font-size: 0.62rem; }
+  .weight-row-mask .weight-num { font-size: 0.48rem; }
+  .octet-dot-separator { padding-bottom: 10px; font-size: 0.95rem; }
+  .mask-dot-separator { padding-bottom: 8px; font-size: 0.85rem; }
+}
+
+/* Focus visibility */
+button:focus-visible, input:focus-visible {
+  outline: 2px solid var(--host);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; }
+}
