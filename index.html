@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Subnetify — CIDR &amp; Subnetting Visualizer</title>
+<link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" integrity="sha512-SnH5WK+bZxgPHs44uWIX+LLJAJ9/2PkPKZ5QiAj6Ta86w+fsb2TkcmfRyVX3pBnMFcV7oQPJkl9QevSCWr3W6A==" crossorigin="anonymous" referrerpolicy="no-referrer">
+</head>
+<body>
+
+  <header class="app-header">
+    <div class="brand">
+      <span class="brand-mark"><i class="fa-solid fa-diagram-project"></i></span>
+      <h1>Subnetify</h1>
+      <span class="brand-sub">CIDR &amp; Subnetting Visualizer</span>
+    </div>
+    <button id="presenterToggle" class="presenter-toggle" type="button"><i class="fa-solid fa-tv"></i> Presenter Mode</button>
+  </header>
+
+  <main class="app-main">
+
+    <!-- ============================================================ -->
+    <!-- PANEL 1 — CONTROL PANEL & IP CLASS AUTO-DETECTION -->
+    <!-- ============================================================ -->
+    <section class="panel" id="panel1">
+      <div class="panel-head">
+        <span class="panel-index">01</span>
+        <h2>Control Panel &amp; IP Class Auto-Detection</h2>
+      </div>
+
+      <div class="panel-body panel1-body">
+        <div class="octet-input-row">
+          <label class="octet-field">
+            <span class="octet-label">Octet 1</span>
+            <input type="number" min="0" max="255" id="octet0" value="192" inputmode="numeric">
+          </label>
+          <span class="dot">.</span>
+          <label class="octet-field">
+            <span class="octet-label">Octet 2</span>
+            <input type="number" min="0" max="255" id="octet1" value="168" inputmode="numeric">
+          </label>
+          <span class="dot">.</span>
+          <label class="octet-field">
+            <span class="octet-label">Octet 3</span>
+            <input type="number" min="0" max="255" id="octet2" value="1" inputmode="numeric">
+          </label>
+          <span class="dot">.</span>
+          <label class="octet-field">
+            <span class="octet-label">Octet 4</span>
+            <input type="number" min="0" max="255" id="octet3" value="0" inputmode="numeric">
+          </label>
+        </div>
+
+        <div class="presets-row">
+          <span class="presets-label">Presets:</span>
+          <button class="preset-btn preset-a" data-preset="A" type="button">Class A · 10.0.0.0</button>
+          <button class="preset-btn preset-b" data-preset="B" type="button">Class B · 172.16.0.0</button>
+          <button class="preset-btn preset-c" data-preset="C" type="button">Class C · 192.168.1.0</button>
+        </div>
+
+        <div class="badges-row">
+          <span class="badge badge-class" id="classBadge">Class C</span>
+          <span class="badge badge-cidr" id="cidrBadge">/24</span>
+          <span class="badge badge-borrow" id="borrowBadge">3 bits borrowed</span>
+        </div>
+
+        <div id="warningBanner" class="warning-banner hidden"></div>
+      </div>
+    </section>
+
+    <!-- ============================================================ -->
+    <!-- PANEL 2 — UNIFIED 32-BIT GRID & CIDR CURTAIN -->
+    <!-- ============================================================ -->
+    <section class="panel" id="panel2">
+      <div class="panel-head">
+        <span class="panel-index">02</span>
+        <h2>Unified 32-Bit Grid &amp; the CIDR Curtain</h2>
+      </div>
+      <p class="panel-hint secondary-copy">Click any unlocked bit to move the subnet boundary. Blue bits are locked by the IP class, amber bits are borrowed for subnetting, green bits remain for hosts.</p>
+      <div class="panel-body">
+        <div class="bit-grid-toolbar">
+          <button id="resetBorrowBtn" class="reset-btn" type="button"><i class="fa-solid fa-rotate-left"></i> Reset to Classful (0 bits borrowed)</button>
+        </div>
+        <div id="bitGrid" class="bit-grid"></div>
+        <div class="legend secondary-copy">
+          <span><i class="swatch swatch-locked"></i> Locked network bit</span>
+          <span><i class="swatch swatch-borrowed"></i> Borrowed subnet bit</span>
+          <span><i class="swatch swatch-host"></i> Host bit</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================ -->
+    <!-- PANEL 3 — DUAL MASK TRANSFORMATION -->
+    <!-- ============================================================ -->
+    <section class="panel" id="panel3">
+      <div class="panel-head">
+        <span class="panel-index">03</span>
+        <h2>Dual Mask Transformation &amp; Positional Math</h2>
+      </div>
+      <div class="panel-body">
+        <div class="mask-compare">
+          <div class="mask-col">
+            <h3>Classful Mask</h3>
+            <div class="mask-binary" id="classfulMaskBinary"></div>
+            <div class="mask-decimal" id="classfulMaskDecimal"></div>
+          </div>
+          <div class="mask-arrow"><i class="fa-solid fa-arrow-down"></i></div>
+          <div class="mask-col">
+            <h3>Classless Mask</h3>
+            <div class="mask-binary" id="classlessMaskBinary"></div>
+            <div class="mask-decimal" id="classlessMaskDecimal"></div>
+          </div>
+        </div>
+
+        <div class="positional-math" id="positionalMath"></div>
+
+        <div class="mask-outputs">
+          <div class="output-chip">
+            <span class="output-label">Dot-decimal</span>
+            <span class="output-value" id="maskDotDecimal">255.255.255.224</span>
+          </div>
+          <div class="output-chip">
+            <span class="output-label">CIDR notation</span>
+            <span class="output-value" id="maskCidr">/27</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================ -->
+    <!-- PANEL 4 — SUBNET PERMUTATION TABLE -->
+    <!-- ============================================================ -->
+    <section class="panel" id="panel4">
+      <div class="panel-head">
+        <span class="panel-index">04</span>
+        <h2>Subnet Permutation Table</h2>
+        <span class="panel-meta" id="subnetCountMeta"></span>
+        <button id="subnetFormulaToggle" class="formula-toggle-btn" type="button" aria-expanded="false" aria-controls="subnetFormulaBox">
+          <i class="fa-solid fa-square-root-variable"></i> Show Formula
+        </button>
+      </div>
+      <div class="panel-body">
+        <div id="subnetFormulaBox" class="formula-box formula-box-subnet hidden"></div>
+        <div class="table-scroll">
+          <table class="data-table" id="subnetTable">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Borrowed Bits Pattern</th>
+                <th>Subnet Index (Decimal)</th>
+                <th>Octet Bits</th>
+                <th>Subnet ID (Decimal)</th>
+                <th class="icon-col"><i class="fa-solid fa-magnifying-glass" title="Inspect"></i></th>
+              </tr>
+            </thead>
+            <tbody id="subnetTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================ -->
+    <!-- PANEL 5 — HOST RANGE INSPECTOR -->
+    <!-- ============================================================ -->
+    <section class="panel" id="panel5">
+      <div class="panel-head">
+        <span class="panel-index">05</span>
+        <h2>Host Range Inspector</h2>
+        <span class="panel-meta" id="activeSubnetMeta"></span>
+        <button id="hostFormulaToggle" class="formula-toggle-btn" type="button" aria-expanded="false" aria-controls="hostFormulaBox">
+          <i class="fa-solid fa-square-root-variable"></i> Show Formula
+        </button>
+      </div>
+      <div class="panel-body">
+        <div id="hostFormulaBox" class="formula-box formula-box-host hidden"></div>
+        <div class="table-scroll">
+          <table class="data-table host-table" id="hostTable">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>IP Address</th>
+                <th class="weights-header">
+                  <div class="weights-caption secondary-copy">Borrowed + Host Bits, by Octet — weights shown per row</div>
+                </th>
+                <th>Role</th>
+              </tr>
+            </thead>
+            <tbody id="hostTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="app-footer secondary-copy">
+    Built for classroom demonstration of Classless Inter-Domain Routing — deterministic bit math, no external libraries.
+  </footer>
+
+<script src="app.js"></script>
+</body>
+</html>
