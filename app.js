@@ -55,14 +55,32 @@ function buildOctetTotalHtml(bitsSlice, variantClass, appendDot) {
 /* ---------------- Global State (single source of truth) ---------------- */
 const state = {
   octets: [192, 168, 1, 0],
-  borrowedBits: 3,
+  borrowedBits: 0,
   activeSubnetIndex: 0,
   subnetsExpanded: false,
   hostsExpanded: false,
   presenterMode: false,
   subnetFormulaVisible: false,
   hostFormulaVisible: false,
+  compareExpanded: false,
+  // 'viz' = bit-level octet visualization, 'decimal' = plain dotted-decimal.
+  // Each panel key is either 'global' (defer to viewMode.global) or an
+  // explicit override of its own.
+  viewMode: {
+    global: 'viz',
+    panel2: 'global',
+    panel3: 'global',
+    panel4: 'global',
+    panel5: 'global',
+  },
 };
+
+/* Resolves a panel's effective display mode, following 'global' through to
+   the global default when the panel hasn't been explicitly overridden. */
+function effectiveMode(panelKey) {
+  const v = state.viewMode[panelKey];
+  return v === 'global' ? state.viewMode.global : v;
+}
 
 /* ---------------- Bit-level helpers ---------------- */
 function toBinary8(n) {
@@ -85,6 +103,54 @@ function bitsToOctets(bits) {
     out.push(bitsToOctet(bits.slice(i * 8, i * 8 + 8)));
   }
   return out;
+}
+
+function bitsArrayToInt(bitsArr) {
+  let n = 0;
+  for (let i = 0; i < bitsArr.length; i++) n = n * 2 + bitsArr[i];
+  return n;
+}
+
+function intToBitsArray(n, len) {
+  return n.toString(2).padStart(len, '0').split('').map(Number);
+}
+
+/* Given a fixed-length prefix (the bits that are locked for a given
+   network/subnet — classful network bits alone, or network+borrowed bits
+   for a specific subnet), derives every address-level fact about that
+   block: network address, broadcast address, mask, host counts, and the
+   usable range. Used by Panel 6 to compare a classful network against a
+   classless subnet using the exact same math, just with a different
+   prefix length/value. */
+function summarizeAddressBlock(prefixBitsArr) {
+  const prefixLen = prefixBitsArr.length;
+  const hostBitsCount = 32 - prefixLen;
+  const totalHosts = Math.pow(2, hostBitsCount);
+  const usableHosts = Math.max(0, totalHosts - 2);
+
+  const networkBitsFull = prefixBitsArr.concat(new Array(hostBitsCount).fill(0));
+  const broadcastBitsFull = prefixBitsArr.concat(new Array(hostBitsCount).fill(1));
+  const networkInt = bitsArrayToInt(networkBitsFull);
+  const broadcastInt = bitsArrayToInt(broadcastBitsFull);
+  const maskBits = new Array(prefixLen).fill(1).concat(new Array(hostBitsCount).fill(0));
+
+  let firstUsableOctets = null;
+  let lastUsableOctets = null;
+  if (usableHosts > 0) {
+    firstUsableOctets = bitsToOctets(intToBitsArray(networkInt + 1, 32));
+    lastUsableOctets = bitsToOctets(intToBitsArray(broadcastInt - 1, 32));
+  }
+
+  return {
+    prefixLen,
+    totalHosts,
+    usableHosts,
+    networkOctets: bitsToOctets(networkBitsFull),
+    broadcastOctets: bitsToOctets(broadcastBitsFull),
+    maskOctets: bitsToOctets(maskBits),
+    firstUsableOctets,
+    lastUsableOctets,
+  };
 }
 
 /* ---------------- Class detection ---------------- */
@@ -130,27 +196,25 @@ function computeDerived() {
   const totalSubnets = Math.pow(2, borrowedBits);
   const totalHosts = Math.pow(2, hostBits);
 
-  // The octet index (0-3) that contains the CIDR curtain (last borrowed bit
-  // or, if none borrowed, the boundary right after the locked network bits).
-  const curtainBitPos = networkBits + borrowedBits; // first host bit index
-  const curtainOctet = Math.min(3, Math.floor(Math.max(curtainBitPos - 1, networkBits) / 8));
-
-  return { classInfo, networkBits, maxBorrow, borrowedBits, hostBits, inputBits, totalSubnets, totalHosts, curtainBitPos, curtainOctet };
+  return { classInfo, networkBits, maxBorrow, borrowedBits, hostBits, inputBits, totalSubnets, totalHosts };
 }
 
 /* ---------------- DOM references ---------------- */
 const el = {
   octetInputs: [0, 1, 2, 3].map((i) => document.getElementById('octet' + i)),
+  octetFields: [0, 1, 2, 3].map((i) => document.getElementById('octetField' + i)),
+  octetLockIcons: [0, 1, 2, 3].map((i) => document.getElementById('octetLock' + i)),
   classBadge: document.getElementById('classBadge'),
   cidrBadge: document.getElementById('cidrBadge'),
   borrowBadge: document.getElementById('borrowBadge'),
   warningBanner: document.getElementById('warningBanner'),
   bitGrid: document.getElementById('bitGrid'),
+  bitGridLegend: document.getElementById('bitGridLegend'),
+  panel2Hint: document.getElementById('panel2Hint'),
   classfulMaskBinary: document.getElementById('classfulMaskBinary'),
   classfulMaskDecimal: document.getElementById('classfulMaskDecimal'),
   classlessMaskBinary: document.getElementById('classlessMaskBinary'),
   classlessMaskDecimal: document.getElementById('classlessMaskDecimal'),
-  positionalMath: document.getElementById('positionalMath'),
   maskDotDecimal: document.getElementById('maskDotDecimal'),
   maskCidr: document.getElementById('maskCidr'),
   subnetCountMeta: document.getElementById('subnetCountMeta'),
@@ -163,14 +227,71 @@ const el = {
   hostTableBody: document.getElementById('hostTableBody'),
   presenterToggle: document.getElementById('presenterToggle'),
   resetBorrowBtn: document.getElementById('resetBorrowBtn'),
+  globalViewModeSegmented: document.getElementById('globalViewModeSegmented'),
+  panel2ViewSelect: document.getElementById('panel2ViewMode'),
+  panel3ViewSelect: document.getElementById('panel3ViewMode'),
+  panel4ViewSelect: document.getElementById('panel4ViewMode'),
+  panel5ViewSelect: document.getElementById('panel5ViewMode'),
+  classfulCompareStats: document.getElementById('classfulCompareStats'),
+  classfulCompareCards: document.getElementById('classfulCompareCards'),
+  classlessCompareStats: document.getElementById('classlessCompareStats'),
+  classlessCompareCards: document.getElementById('classlessCompareCards'),
 };
+
+/* ---------------- Octet edit-lock guard (Panel 1) ---------------- */
+/* Only the octets that make up the CLASSFUL network portion are editable —
+   Class A: octet 1 only. Class B: octets 1-2. Class C: octets 1-3.
+   Everything after that is the host portion of the base network address
+   and must stay 0 (that's what "classful base network" means — 10.0.0.0,
+   172.16.0.0, 192.168.1.0). Only Octet 1 ever drives class detection, so
+   this is safe to compute before the rest of computeDerived() runs, and
+   must run BEFORE it — it mutates state.octets so every downstream panel
+   (bit grid, masks, subnet/host tables) sees the already-zeroed values
+   rather than stale digits left over from a previous class. */
+function syncOctetLocking() {
+  const classInfo = detectClass(state.octets[0]);
+  const editableCount = classInfo.networkBits / 8;
+  for (let i = editableCount; i < 4; i++) {
+    state.octets[i] = 0;
+  }
+  return editableCount;
+}
+
+/* Reflects the lock state onto the actual <input> elements: disables the
+   host-portion octets (so they can't be typed into at all, not just
+   validated after the fact), keeps their displayed value pinned to 0, and
+   surfaces a lock icon next to the label. Skips overwriting an input the
+   teacher currently has focused, so mid-typing on an editable octet is
+   never clobbered by its own re-render. */
+function updateOctetInputsUI(editableCount) {
+  el.octetInputs.forEach((inp, i) => {
+    const isEditable = i < editableCount;
+    inp.disabled = !isEditable;
+    if (el.octetFields[i]) el.octetFields[i].classList.toggle('octet-locked', !isEditable);
+    if (el.octetLockIcons[i]) el.octetLockIcons[i].classList.toggle('hidden', isEditable);
+    if (!isEditable) {
+      inp.value = '0';
+    } else if (document.activeElement !== inp) {
+      inp.value = String(state.octets[i]);
+    }
+  });
+}
 
 /* ---------------- Renderers ---------------- */
 
 function renderPanel1(d) {
-  el.classBadge.textContent = 'Class ' + d.classInfo.label;
+  el.classBadge.textContent = d.classInfo.label;
+  el.classBadge.classList.toggle('class-value-long', d.classInfo.label.length > 2);
   el.cidrBadge.textContent = '/' + d.networkBits;
   el.borrowBadge.textContent = d.borrowedBits + ' bit' + (d.borrowedBits === 1 ? '' : 's') + ' borrowed';
+
+  const cantReset = Boolean(d.classInfo.warning) || d.borrowedBits === 0;
+  el.resetBorrowBtn.disabled = cantReset;
+  el.resetBorrowBtn.title = d.classInfo.warning
+    ? 'Bit-borrowing is disabled for this address range'
+    : d.borrowedBits === 0
+      ? 'Already classful (0 bits borrowed)'
+      : 'Reset to classful (0 bits borrowed)';
 
   if (d.classInfo.warning) {
     el.warningBanner.innerHTML = '<i class="fa-solid fa-triangle-exclamation"></i> ' + d.classInfo.warning;
@@ -181,6 +302,24 @@ function renderPanel1(d) {
 }
 
 function renderPanel2(d) {
+  const decimalMode = effectiveMode('panel2') === 'decimal';
+  el.bitGridLegend.classList.toggle('hidden', decimalMode);
+  el.panel2Hint.classList.toggle('hidden', decimalMode);
+
+  const totalPrefix = d.networkBits + d.borrowedBits;
+
+  if (decimalMode) {
+    let html = '<div class="decimal-ip-row">';
+    for (let g = 0; g < 4; g++) {
+      const bitsSlice = d.inputBits.slice(g * 8, g * 8 + 8);
+      html += buildOctetTotalHtml(bitsSlice, 'octet-total-main', g < 3);
+    }
+    html += '<span class="decimal-cidr-suffix">/' + totalPrefix + '</span>';
+    html += '</div>';
+    el.bitGrid.innerHTML = html;
+    return;
+  }
+
   el.bitGrid.innerHTML = '';
   const totalBorrowEnd = d.networkBits + d.borrowedBits;
 
@@ -195,8 +334,20 @@ function renderPanel2(d) {
       if (globalIndex < totalBorrowEnd) return 'borrowed';
       return 'host';
     });
+
+    // The last octet (Octet 4) has no trailing dot, since it's the end
+    // of the address — this is exactly where the CIDR suffix belongs too,
+    // read the same way it is in Decimal Only: "...0/27" at the very end
+    // of the address, not a separate label elsewhere on the panel.
+    const totalHtml = g === 3
+      ? '<div class="octet-total-cidr-wrap">' +
+          buildOctetTotalHtml(bitsSlice, 'octet-total-main', false) +
+          '<span class="decimal-cidr-suffix cidr-suffix-viz">/' + totalPrefix + '</span>' +
+        '</div>'
+      : buildOctetTotalHtml(bitsSlice, 'octet-total-main', g < 3);
+
     octetBlock.innerHTML =
-      buildOctetTotalHtml(bitsSlice, 'octet-total-main', g < 3) +
+      totalHtml +
       buildWeightRowHtml(bitsSlice, 'weight-row-main', kindsSlice);
 
     const group = document.createElement('div');
@@ -290,38 +441,19 @@ function renderPanel3(d) {
     }
   };
 
-  renderMaskBinary(classfulBits, el.classfulMaskBinary, d.networkBits, d.networkBits);
-  renderMaskBinary(classlessBits, el.classlessMaskBinary, d.networkBits, d.networkBits + d.borrowedBits);
+  const decimalMode = effectiveMode('panel3') === 'decimal';
+  el.classfulMaskBinary.classList.toggle('hidden', decimalMode);
+  el.classlessMaskBinary.classList.toggle('hidden', decimalMode);
+
+  if (!decimalMode) {
+    renderMaskBinary(classfulBits, el.classfulMaskBinary, d.networkBits, d.networkBits);
+    renderMaskBinary(classlessBits, el.classlessMaskBinary, d.networkBits, d.networkBits + d.borrowedBits);
+  }
 
   const classfulOctets = bitsToOctets(classfulBits.concat());
   const classlessOctets = bitsToOctets(classlessBits.concat());
   el.classfulMaskDecimal.textContent = classfulOctets.join('.') + '  (/' + d.networkBits + ')';
   el.classlessMaskDecimal.textContent = classlessOctets.join('.') + '  (/' + (d.networkBits + d.borrowedBits) + ')';
-
-  // Positional math callout for the octet containing the CIDR curtain
-  const octetStart = d.curtainOctet * 8;
-  const terms = [];
-  let sum = 0;
-  for (let k = 0; k < 8; k++) {
-    const globalIndex = octetStart + k;
-    const isBorrowedHere = globalIndex >= d.networkBits && globalIndex < d.networkBits + d.borrowedBits;
-    const contributes = isBorrowedHere;
-    const value = contributes ? WEIGHTS[k] : 0;
-    sum += value;
-    terms.push({ value, active: contributes });
-  }
-
-  const termsHtml = terms
-    .map((t, idx) => {
-      const cls = t.active ? 'weight-term active' : 'weight-term';
-      const sep = idx < terms.length - 1 ? ' + ' : '';
-      return '<span class="' + cls + '">' + t.value + '</span>' + sep;
-    })
-    .join('');
-
-  el.positionalMath.innerHTML =
-    'Octet ' + (d.curtainOctet + 1) + ' (borrowed contribution): ' +
-    termsHtml + ' = <span class="equals-result">' + sum + '</span>';
 
   el.maskDotDecimal.textContent = classlessOctets.join('.');
   el.maskCidr.textContent = '/' + (d.networkBits + d.borrowedBits);
@@ -413,7 +545,10 @@ function buildSubnetRows(d) {
 
 function renderPanel4(d) {
   const rows = buildSubnetRows(d);
-  el.subnetCountMeta.textContent = d.totalSubnets + ' total subnet' + (d.totalSubnets === 1 ? '' : 's');
+  el.subnetCountMeta.innerHTML =
+    '<i class="fa-solid fa-list-ol"></i> <strong>' + d.totalSubnets + '</strong> total subnet' + (d.totalSubnets === 1 ? '' : 's') +
+    '<span class="meta-caret"> — sets the ' + d.totalSubnets + ' row' + (d.totalSubnets === 1 ? '' : 's') + ' below</span>';
+  el.subnetCountMeta.title = 'Every borrowed-bit permutation becomes one row in the table below.';
 
   el.subnetFormulaBox.innerHTML = buildSubnetFormulaHtml(d);
   el.subnetFormulaBox.classList.toggle('hidden', !state.subnetFormulaVisible);
@@ -428,17 +563,20 @@ function renderPanel4(d) {
 
   el.subnetTableBody.innerHTML = '';
 
+  const decimalMode = effectiveMode('panel4') === 'decimal';
+
   const renderRow = (row) => {
     const tr = document.createElement('tr');
     if (row.index === state.activeSubnetIndex) tr.classList.add('active-row');
     const isActive = row.index === state.activeSubnetIndex;
-    const octetBitsCell = buildOctetBitsDisplay(row.fullBits, d);
+    const subnetIndexCell = decimalMode
+      ? '<span class="octet-total octet-total-compact">' + row.index + '</span>'
+      : buildBorrowedPatternViz(row.borrowedBitsArr);
+    const octetBitsCell = decimalMode ? row.octets.join('.') : buildOctetBitsDisplay(row.fullBits, d);
     tr.innerHTML =
       '<td>' + (row.index + 1) + '</td>' +
-      '<td class="nowrap-cell">' + buildBorrowedPatternViz(row.borrowedBitsArr) + '</td>' +
-      '<td>' + row.index + '</td>' +
+      '<td class="nowrap-cell">' + subnetIndexCell + '</td>' +
       '<td class="nowrap-cell">' + octetBitsCell + '</td>' +
-      '<td>' + row.octets.join('.') + '</td>' +
       '<td><button class="inspect-btn' + (isActive ? ' is-active' : '') + '" data-idx="' + row.index + '" title="' +
       (isActive ? 'Active subnet' : 'Inspect this subnet') + '" aria-label="' +
       (isActive ? 'Active subnet' : 'Inspect this subnet') + '">' +
@@ -458,7 +596,8 @@ function renderPanel4(d) {
     const trExp = document.createElement('tr');
     trExp.className = 'expansion-row';
     trExp.innerHTML =
-      '<td colspan="6"><button class="expansion-btn" id="subnetExpandBtn"><i class="fa-solid fa-eye"></i> Show ' + hiddenCount + ' Hidden Subnets</button></td>';
+      '<td class="expansion-index" title="' + hiddenCount + ' hidden rows">&#8942;</td>' +
+      '<td colspan="3"><button class="expansion-btn" id="subnetExpandBtn"><i class="fa-solid fa-eye"></i> Show ' + hiddenCount + ' Hidden Subnets</button></td>';
     el.subnetTableBody.appendChild(trExp);
     document.getElementById('subnetExpandBtn').addEventListener('click', () => {
       state.subnetsExpanded = true;
@@ -469,7 +608,7 @@ function renderPanel4(d) {
     rows.forEach(renderRow);
     const trCollapse = document.createElement('tr');
     trCollapse.className = 'expansion-row';
-    trCollapse.innerHTML = '<td colspan="6"><button class="expansion-btn" id="subnetCollapseBtn"><i class="fa-solid fa-chevron-up"></i> Collapse</button></td>';
+    trCollapse.innerHTML = '<td colspan="4"><button class="expansion-btn" id="subnetCollapseBtn"><i class="fa-solid fa-chevron-up"></i> Collapse</button></td>';
     el.subnetTableBody.appendChild(trCollapse);
     document.getElementById('subnetCollapseBtn').addEventListener('click', () => {
       state.subnetsExpanded = false;
@@ -515,16 +654,15 @@ function buildSingleOctetBits(fullBits, d, octetIndex) {
     '</div>';
 }
 
-// Renders bit-level detail for every octet that isn't 100% locked network
-// bits — i.e. every octet touched by borrowed or host bits. For Class C this
-// is just the last octet; for Class B it's the last two; for Class A it's
-// the last three. This keeps the visualization accurate across all classes
-// instead of assuming only one (the last) octet ever varies.
+// Renders bit-level detail for all 4 octets, including any that are
+// 100% locked network bits. Showing the locked octets too (not just the
+// ones touched by borrowed/host bits) keeps the full 32-bit picture
+// consistent with Panel 2/3 above, and makes it visually obvious *why*
+// e.g. a Class A address only has 3 octets left to subnet/host: the first
+// octet is right there, fully blue, instead of silently missing.
 function buildOctetBitsDisplay(fullBits, d) {
-  if (d.networkBits >= 32) return '<span class="secondary-copy">—</span>';
-  const startOctet = Math.min(3, Math.floor(d.networkBits / 8));
   let out = '<div class="octet-bits-row">';
-  for (let o = startOctet; o < 4; o++) {
+  for (let o = 0; o < 4; o++) {
     out += buildSingleOctetBits(fullBits, d, o);
   }
   out += '</div>';
@@ -533,9 +671,11 @@ function buildOctetBitsDisplay(fullBits, d) {
 
 function renderPanel5(d, subnetRows) {
   const activeSubnet = subnetRows[state.activeSubnetIndex] || subnetRows[0];
-  el.activeSubnetMeta.textContent =
-    'Subnet ' + (activeSubnet ? activeSubnet.index : 0) + ' — ' + (activeSubnet ? activeSubnet.octets.join('.') : '') +
-    ' (' + d.totalHosts + ' addresses)';
+  el.activeSubnetMeta.innerHTML =
+    '<i class="fa-solid fa-crosshairs"></i> Inspecting <strong>Subnet ' + (activeSubnet ? activeSubnet.index : 0) + '</strong>' +
+    ' (' + (activeSubnet ? activeSubnet.octets.join('.') : '') + ')' +
+    '<span class="meta-caret"> — generates the ' + d.totalHosts + ' addresses below</span>';
+  el.activeSubnetMeta.title = 'This is the subnet selected in the table above; every row below is an address within it.';
 
   el.hostFormulaBox.innerHTML = buildHostFormulaHtml(d);
   el.hostFormulaBox.classList.toggle('hidden', !state.hostFormulaVisible);
@@ -549,18 +689,18 @@ function renderPanel5(d, subnetRows) {
   if (!activeSubnet) return;
 
   const baseBits = activeSubnet.fullBits.slice(0, d.networkBits + d.borrowedBits);
+  const decimalMode = effectiveMode('panel5') === 'decimal';
 
   const renderHostRow = (h) => {
     const hostBitsArr = h.toString(2).padStart(d.hostBits, '0').split('').map(Number);
     const fullBits = baseBits.concat(hostBitsArr);
-    const octets = bitsToOctets(fullBits);
     const role = roleForHostIndex(h, d.totalHosts);
+    const addressCell = decimalMode ? bitsToOctets(fullBits).join('.') : buildOctetBitsDisplay(fullBits, d);
 
     const tr = document.createElement('tr');
     tr.innerHTML =
       '<td>' + (h + 1) + '</td>' +
-      '<td>' + octets.join('.') + '</td>' +
-      '<td class="nowrap-cell">' + buildOctetBitsDisplay(fullBits, d) + '</td>' +
+      '<td class="nowrap-cell">' + addressCell + '</td>' +
       '<td><span class="badge-role ' + role.cls + '">' + role.label + '</span></td>';
     el.hostTableBody.appendChild(tr);
   };
@@ -572,7 +712,9 @@ function renderPanel5(d, subnetRows) {
     const hiddenCount = d.totalHosts - 8;
     const trExp = document.createElement('tr');
     trExp.className = 'expansion-row';
-    trExp.innerHTML = '<td colspan="4"><button class="expansion-btn" id="hostExpandBtn"><i class="fa-solid fa-eye"></i> Show ' + hiddenCount + ' Hidden Hosts</button></td>';
+    trExp.innerHTML =
+      '<td class="expansion-index" title="' + hiddenCount + ' hidden rows">&#8942;</td>' +
+      '<td colspan="2"><button class="expansion-btn" id="hostExpandBtn"><i class="fa-solid fa-eye"></i> Show ' + hiddenCount + ' Hidden Hosts</button></td>';
     el.hostTableBody.appendChild(trExp);
     document.getElementById('hostExpandBtn').addEventListener('click', () => {
       state.hostsExpanded = true;
@@ -584,7 +726,7 @@ function renderPanel5(d, subnetRows) {
     for (let h = 0; h < cap; h++) renderHostRow(h);
     const trCollapse = document.createElement('tr');
     trCollapse.className = 'expansion-row';
-    trCollapse.innerHTML = '<td colspan="4"><button class="expansion-btn" id="hostCollapseBtn"><i class="fa-solid fa-chevron-up"></i> Collapse</button></td>';
+    trCollapse.innerHTML = '<td colspan="3"><button class="expansion-btn" id="hostCollapseBtn"><i class="fa-solid fa-chevron-up"></i> Collapse</button></td>';
     el.hostTableBody.appendChild(trCollapse);
     document.getElementById('hostCollapseBtn').addEventListener('click', () => {
       state.hostsExpanded = false;
@@ -594,16 +736,126 @@ function renderPanel5(d, subnetRows) {
 }
 
 /* ---------------- Master render ---------------- */
+/* Panel 6: side-by-side decimal comparison of the original classful network
+   against the currently-inspected classless subnet (Panel 4's active
+   row). No bit representation here by design — this panel is the plain-
+   language payoff after Panels 2-5 walked through the binary reasoning. */
+const fmtOctets = (octets) => (octets ? octets.join('.') : '—');
+
+function buildCompareCommonStatsHtml(summary, countLabel, count, usableHostsLabel) {
+  return (
+    '<div class="compare-stat">' +
+      '<span class="compare-stat-label">Subnet Mask</span>' +
+      '<span class="compare-stat-value">' + fmtOctets(summary.maskOctets) + ' (/' + summary.prefixLen + ')</span>' +
+    '</div>' +
+    '<div class="compare-stat">' +
+      '<span class="compare-stat-label">' + countLabel + '</span>' +
+      '<span class="compare-stat-value">' + count + '</span>' +
+    '</div>' +
+    '<div class="compare-stat">' +
+      '<span class="compare-stat-label">' + (usableHostsLabel || 'Usable Hosts') + '</span>' +
+      '<span class="compare-stat-value">' + summary.usableHosts + '</span>' +
+    '</div>'
+  );
+}
+
+function buildCompareCardHtml(indexLabel, summary) {
+  const usableRangeText = summary.usableHosts > 0
+    ? fmtOctets(summary.firstUsableOctets) + ' – ' + fmtOctets(summary.lastUsableOctets)
+    : '—';
+  return (
+    '<div class="compare-card">' +
+      '<div class="compare-card-index">' + indexLabel + '</div>' +
+      '<div class="compare-card-row"><span class="compare-card-label">Network Address</span><span class="compare-card-value">' + fmtOctets(summary.networkOctets) + '</span></div>' +
+      '<div class="compare-card-row"><span class="compare-card-label">Usable Host Range</span><span class="compare-card-value">' + usableRangeText + '</span></div>' +
+      '<div class="compare-card-row"><span class="compare-card-label">Broadcast</span><span class="compare-card-value">' + fmtOctets(summary.broadcastOctets) + '</span></div>' +
+    '</div>'
+  );
+}
+
+/* Renders one card per item into a container, applying the same First 5 /
+   Interactive Ellipsis / Last 3 truncation rule used by Panels 4 & 5 once
+   there are more than 8 items. */
+function renderCompareCards(container, items, buildIndexLabel, expandBtnId, onToggle) {
+  container.innerHTML = '';
+  const total = items.length;
+
+  const appendCard = (item) => {
+    container.insertAdjacentHTML('beforeend', buildCompareCardHtml(buildIndexLabel(item), item.summary));
+  };
+
+  if (total <= 8) {
+    items.forEach(appendCard);
+    return;
+  }
+
+  if (!state.compareExpanded) {
+    items.slice(0, 5).forEach(appendCard);
+    const hiddenCount = total - 8;
+    container.insertAdjacentHTML(
+      'beforeend',
+      '<div class="compare-expand-card"><button class="expansion-btn" id="' + expandBtnId + '">' +
+        '<i class="fa-solid fa-eye"></i> Show ' + hiddenCount + ' Hidden Subnets</button></div>'
+    );
+    document.getElementById(expandBtnId).addEventListener('click', () => onToggle(true));
+    items.slice(-3).forEach(appendCard);
+  } else {
+    items.forEach(appendCard);
+    const collapseBtnId = expandBtnId + 'Collapse';
+    container.insertAdjacentHTML(
+      'beforeend',
+      '<div class="compare-expand-card"><button class="expansion-btn" id="' + collapseBtnId + '">' +
+        '<i class="fa-solid fa-chevron-up"></i> Collapse</button></div>'
+    );
+    document.getElementById(collapseBtnId).addEventListener('click', () => onToggle(false));
+  }
+}
+
+/* Panel 6: decimal-only comparison of the original classful network against
+   every classless subnet it splits into — no bit representation, no
+   dependency on Panel 4's currently-inspected row. Each group shows its
+   shared facts (mask, count, usable hosts) once up top, then one card per
+   network (Classful: always exactly 1) or per subnet (Classless: all of
+   them, subject to the same >8 truncation rule as Panels 4/5). */
+function renderPanel6(d, subnetRows) {
+  const classfulSummary = summarizeAddressBlock(d.inputBits.slice(0, d.networkBits));
+  el.classfulCompareStats.innerHTML = buildCompareCommonStatsHtml(classfulSummary, 'Number of Networks', 1);
+  el.classfulCompareCards.innerHTML = buildCompareCardHtml('Whole Network', classfulSummary);
+
+  const classlessItems = subnetRows.map((row) => ({
+    index: row.index,
+    summary: summarizeAddressBlock(row.fullBits.slice(0, d.networkBits + d.borrowedBits)),
+  }));
+  const referenceSummary = classlessItems[0]
+    ? classlessItems[0].summary
+    : summarizeAddressBlock(d.inputBits.slice(0, d.networkBits + d.borrowedBits));
+  el.classlessCompareStats.innerHTML = buildCompareCommonStatsHtml(referenceSummary, 'Number of Subnets', d.totalSubnets, 'Usable Hosts / Subnet');
+
+  renderCompareCards(
+    el.classlessCompareCards,
+    classlessItems,
+    (item) => 'Subnet ' + item.index,
+    'compareExpandBtn',
+    (expand) => {
+      state.compareExpanded = expand;
+      render();
+    }
+  );
+}
+
 function render() {
+  const editableCount = syncOctetLocking();
   const d = computeDerived();
   // keep state.borrowedBits clamped so UI/state stay in sync
   state.borrowedBits = d.borrowedBits;
 
+  updateOctetInputsUI(editableCount);
   renderPanel1(d);
   renderPanel2(d);
   renderPanel3(d);
   const subnetRows = renderPanel4(d);
   renderPanel5(d, subnetRows);
+  renderPanel6(d, subnetRows);
 }
 
 /* ---------------- Event handlers ---------------- */
@@ -627,12 +879,13 @@ function onOctetInput() {
     const v = parseInt(inp.value, 10);
     return Number.isFinite(v) ? Math.max(0, Math.min(255, v)) : 0;
   });
-  // Reset subnetting context on IP change (class may have changed)
+  // Reset subnetting context on IP change (class may have changed). Borrowed
+  // bits reset to 0 (classful) rather than an assumed default — the teacher
+  // picks the boundary themselves by clicking a bit in Panel 2.
   state.activeSubnetIndex = 0;
   state.subnetsExpanded = false;
   state.hostsExpanded = false;
-  if (state.borrowedBits === undefined) state.borrowedBits = 3;
-  else state.borrowedBits = 3; // default per spec when class re-evaluated
+  state.borrowedBits = 0;
   render();
 }
 
@@ -644,7 +897,9 @@ function applyPreset(name) {
   };
   state.octets = presets[name];
   el.octetInputs.forEach((inp, i) => (inp.value = state.octets[i]));
-  state.borrowedBits = 3;
+  // Load classful (0 bits borrowed) — the teacher clicks a bit in Panel 2
+  // to choose where the subnet boundary starts.
+  state.borrowedBits = 0;
   state.activeSubnetIndex = 0;
   state.subnetsExpanded = false;
   state.hostsExpanded = false;
@@ -686,6 +941,29 @@ function init() {
     state.hostFormulaVisible = !state.hostFormulaVisible;
     render();
   });
+
+  el.globalViewModeSegmented.querySelectorAll('.segment-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      state.viewMode.global = btn.dataset.mode;
+      el.globalViewModeSegmented.querySelectorAll('.segment-btn').forEach((b) => {
+        b.classList.toggle('active', b === btn);
+      });
+      render();
+    });
+  });
+
+  [
+    ['panel2ViewSelect', 'panel2'],
+    ['panel3ViewSelect', 'panel3'],
+    ['panel4ViewSelect', 'panel4'],
+    ['panel5ViewSelect', 'panel5'],
+  ].forEach(([elKey, panelKey]) => {
+    el[elKey].addEventListener('change', () => {
+      state.viewMode[panelKey] = el[elKey].value;
+      render();
+    });
+  });
+
   render();
 }
 
