@@ -45,6 +45,12 @@ html, body {
   background: var(--bg-primary);
   color: var(--text-primary);
   font-family: var(--font-ui);
+  /* Safety net: if any child briefly forces a wider layout (e.g. a
+     nowrap control on a narrow emulated device), clip it horizontally
+     instead of letting it widen the whole document — which is what was
+     causing .app-main's `margin: 0 auto` to center against a wider,
+     invisible canvas and look "shifted left" in DevTools device mode. */
+  overflow-x: hidden;
 }
 
 body {
@@ -88,6 +94,125 @@ body {
   color: #93c5fd;
 }
 
+/* ---------- Header actions: global view-mode toggle + presenter toggle ---------- */
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.view-mode-global {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+.view-mode-label {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+.segmented {
+  display: inline-flex;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+.segment-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  padding: 8px 12px;
+  font-family: var(--font-ui);
+  font-size: 0.82rem;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.segment-btn + .segment-btn { border-left: 1px solid var(--border-soft); }
+.segment-btn:hover { background: var(--bg-surface-2); color: var(--text-primary); }
+.segment-btn.active {
+  background: var(--locked-soft);
+  color: #93c5fd;
+}
+
+/* ---------- Per-panel view-mode select ---------- */
+.panel-view-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+}
+.panel-view-select {
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border-soft);
+  color: var(--text-primary);
+  padding: 5px 8px;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-ui);
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+.panel-view-select:hover { border-color: var(--locked); }
+.panel-view-select:focus-visible { outline: 2px solid var(--host); outline-offset: 1px; }
+
+/* ---------- Decimal-only octet display (Panel 2) ---------- */
+.decimal-ip-row {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: baseline;
+  justify-content: center;
+  gap: var(--octet-gap);
+  padding: clamp(18px, 4vw, 36px) 6px;
+}
+.decimal-ip-row .octet-total {
+  font-size: clamp(1.4rem, 6vw, 3rem);
+}
+/* CIDR suffix ("/27") appended directly after the last octet's total —
+   read the same way as ordinary CIDR notation: "192.168.1.0/27", with the
+   prefix length sitting right at the end of the address, not as a
+   separate label elsewhere on the panel. Shared base rule; the two
+   contexts below (decimal row vs. bit-visualization octet block) size it
+   relative to their own available space. */
+.decimal-cidr-suffix {
+  font-family: var(--font-mono);
+  color: var(--borrowed);
+  font-weight: 700;
+  white-space: nowrap;
+}
+.decimal-ip-row .decimal-cidr-suffix {
+  font-size: clamp(1.1rem, 4vw, 2rem);
+  margin-left: 4px;
+}
+
+/* Bit-visualization mode: the same "/27" suffix, now attached to Octet 4's
+   total instead of the decimal row, so it survives the switch back to Bit
+   Visualization instead of disappearing. Wraps the total + suffix on one
+   line so it reads "0/27" exactly like the decimal mode's "...0/27". Uses
+   cqi (not vw) because .octet-block is the sizing container here — the
+   octet block is much narrower than the full decimal row, so the suffix
+   needs to scale off its own block, not the viewport. */
+.octet-total-cidr-wrap {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 3px;
+  flex-wrap: nowrap;
+}
+.octet-total-cidr-wrap .octet-total {
+  /* Matches .octet-total-main's own sizing so the total still reads
+     identically to the other three (undotted) octets beside it. */
+  font-size: clamp(0.95rem, 32cqi, 2.5rem);
+}
+.cidr-suffix-viz {
+  font-size: clamp(0.6rem, 22cqi, 1.7rem);
+  margin-left: 0;
+}
+
 /* ---------- Layout ---------- */
 .app-main {
   width: 100%;
@@ -123,19 +248,63 @@ body {
   padding: 1px 6px;
 }
 .panel-head h2 { font-size: 1.05rem; margin: 0; font-weight: 600; }
+
+/* .panel-meta (used by #subnetCountMeta and #activeSubnetMeta) isn't just
+   an incidental status label — it's the derivation source for the table
+   directly beneath it: the subnet count IS the row count in Panel 4, and
+   the currently-inspected subnet IS the address range enumerated in
+   Panel 5. Styled as a solid chip (not quiet gray text) with an icon and
+   an explicit "→ ... below" caret so that relationship reads at a glance
+   instead of blending into the header row. */
 .panel-meta {
   margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   font-family: var(--font-mono);
-  font-size: 0.8rem;
-  color: var(--text-secondary);
+  font-size: 0.88rem;
+  font-weight: 600;
+  border-radius: 999px;
+  padding: 7px 15px;
+  border: 1px solid var(--border-soft);
+  background: var(--bg-surface-2);
+  color: var(--text-primary);
 }
+.panel-meta strong { font-weight: 800; }
+.panel-meta .meta-caret {
+  font-weight: 400;
+  font-size: 0.78rem;
+  color: var(--text-dim);
+}
+
+/* Panel 4: subnet count drives how many rows the permutation table below
+   generates. Amber ties it to the borrowed-bit color language used for
+   subnetting throughout the app. */
+#subnetCountMeta {
+  background: var(--borrowed-soft);
+  border-color: var(--borrowed);
+  color: #fcd34d;
+}
+#subnetCountMeta i { color: var(--borrowed); }
+
+/* Panel 5: the active subnet drives every row of the host inspector
+   below. Green ties it to the host-bit color language. */
+#activeSubnetMeta {
+  background: var(--host-soft);
+  border-color: var(--host);
+  color: #6ee7b7;
+}
+#activeSubnetMeta i { color: var(--host); }
+
 .panel-hint { font-size: 0.85rem; margin: -4px 0 14px; }
 
 /* ---------- Panel 1 ---------- */
 .octet-input-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-end;
   gap: 6px;
+  row-gap: 10px;
   margin-bottom: 16px;
 }
 .octet-field { display: flex; flex-direction: column; gap: 4px; }
@@ -157,6 +326,86 @@ body {
 }
 .dot { font-size: 1.4rem; color: var(--text-dim); padding-bottom: 8px; }
 
+/* CIDR suffix after Octet 4 — same element/language as Panel 2's
+   .decimal-cidr-suffix ("...0/27") rather than a standalone badge, so the
+   notation reads identically everywhere in the app. Baseline-aligned with
+   the octet inputs the same way .dot is. Color is deliberately overridden
+   to a muted neutral rather than inheriting the amber borrowed-bit color:
+   this suffix always shows the CLASSFUL boundary (networkBits alone), not
+   the classless one Panel 2's amber suffix tracks (networkBits +
+   borrowedBits). Keeping it amber would visually claim it's the same
+   live, borrowed-bit-aware value it isn't. */
+.octet-row-cidr-suffix {
+  padding-bottom: 8px;
+  font-size: 1.3rem;
+  margin-left: 4px;
+  color: var(--text-dim);
+  font-weight: 600;
+}
+
+/* Octet edit-lock guard: octets outside the classful network portion
+   (e.g. octets 2-4 for Class A) are disabled and pinned to 0 — this is
+   the visual cue that they're not just "currently zero" but off-limits
+   for the detected class. */
+.octet-lock-icon {
+  color: var(--borrowed);
+  font-size: 0.62rem;
+  margin-left: 2px;
+}
+.octet-field.octet-locked .octet-label {
+  color: var(--text-dim);
+}
+.octet-field input:disabled {
+  background: var(--bg-primary);
+  border-color: var(--border-soft);
+  color: var(--text-dim);
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+.octet-lock-hint {
+  margin-top: -4px;
+  margin-bottom: 16px;
+}
+
+/* Class field: merged into the same line as the IP octets so the row
+   reads as one unit — "Class C | 192.168.1.0 /24" — instead of a
+   disconnected badge elsewhere on the panel. Same box shape/sizing as
+   the octet inputs so it lines up baseline-to-baseline, but rendered as
+   static text (not an input) since the class is derived from Octet 1,
+   never typed directly. Colored with the same blue used for locked
+   network bits everywhere else in the app — the class IS what determines
+   which bits lock, so the color ties the two together instead of being
+   an arbitrary badge color. */
+.class-value {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 40px;
+  height: 39px;
+  background: var(--locked-soft);
+  border: 1px solid var(--locked);
+  color: #93c5fd;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 1.05rem;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
+}
+/* Rare long labels (Loopback, D (Multicast), E (Experimental)) need a
+   smaller size to stay on one line inside the same fixed-height box. */
+.class-value.class-value-long {
+  font-size: 0.72rem;
+  padding: 8px 8px;
+}
+.row-divider {
+  color: var(--border-soft);
+  font-size: 1.6rem;
+  font-weight: 300;
+  padding-bottom: 8px;
+  line-height: 1;
+}
+
 .presets-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
 .presets-label { font-size: 0.8rem; color: var(--text-secondary); margin-right: 4px; }
 .preset-btn {
@@ -171,7 +420,6 @@ body {
 }
 .preset-btn:hover { border-color: var(--host); }
 
-.badges-row { display: flex; gap: 8px; flex-wrap: wrap; }
 .badge {
   font-family: var(--font-mono);
   font-size: 0.8rem;
@@ -179,9 +427,45 @@ body {
   border-radius: 999px;
   border: 1px solid transparent;
 }
-.badge-class { background: var(--locked-soft); color: #93c5fd; border-color: var(--locked); }
-.badge-cidr { background: var(--host-soft); color: #6ee7b7; border-color: var(--host); }
-.badge-borrow { background: var(--borrowed-soft); color: #fcd34d; border-color: var(--borrowed); }
+.badge-borrow {
+  background: var(--borrowed-soft);
+  color: #fcd34d;
+  border-color: var(--borrowed);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding-right: 6px;
+}
+
+/* Icon-only reset button embedded in the "X bits borrowed" badge, now
+   living in Panel 2's header next to the bit grid it controls — bits are
+   borrowed by clicking cells in that grid, so the badge and its reset sit
+   right where that action happens instead of on a disconnected Panel 1. */
+.badge-icon-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  color: #fcd34d;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, opacity 0.15s ease;
+}
+.badge-icon-btn:hover {
+  background: rgba(245, 158, 11, 0.28);
+  border-color: var(--borrowed);
+}
+.badge-icon-btn:disabled {
+  color: var(--text-dim);
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+.badge-icon-btn:disabled:hover { background: transparent; border-color: transparent; }
 
 .warning-banner {
   margin-top: 14px;
@@ -279,8 +563,12 @@ body {
   filter: brightness(1.25);
   transform: translateY(-1px);
 }
-.bit-cell .lock-icon { font-size: 0.65rem; position: absolute; top: 2px; }
-.bit-cell .bit-value { margin-top: 6px; }
+.bit-cell .lock-icon {
+  font-size: clamp(0.42rem, 1.1vw, 0.7rem);
+  line-height: 1;
+}
+.bit-cell .bit-value { line-height: 1; }
+.bit-cell.locked { gap: clamp(2px, 0.6vw, 5px); }
 
 /* ---------- Positional weight rows (128/64/32/16/8/4/2/1) ---------- */
 /* Shared across every octet visualization: the number is "lit" (bright,
@@ -394,23 +682,6 @@ body {
   text-align: center;
 }
 
-.bit-grid-toolbar {
-  display: flex;
-  justify-content: flex-end;
-  margin-bottom: 12px;
-}
-.reset-btn {
-  background: var(--bg-surface-2);
-  border: 1px solid var(--border-soft);
-  color: var(--text-secondary);
-  padding: 6px 12px;
-  border-radius: var(--radius-sm);
-  font-family: var(--font-mono);
-  font-size: 0.78rem;
-  cursor: pointer;
-}
-.reset-btn:hover { border-color: var(--host); color: var(--host); }
-
 .legend { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 16px; font-size: 0.78rem; }
 .legend span { display: inline-flex; align-items: center; gap: 6px; }
 .swatch { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
@@ -493,21 +764,6 @@ body {
   color: var(--borrowed);
   padding: 2px 0;
 }
-
-.positional-math {
-  font-family: var(--font-mono);
-  background: var(--bg-surface-2);
-  border: 1px dashed var(--borrowed);
-  border-radius: var(--radius-sm);
-  padding: 12px 14px;
-  font-size: 0.95rem;
-  margin-bottom: 18px;
-  overflow-x: auto;
-  white-space: nowrap;
-}
-.positional-math .weight-term { color: var(--text-secondary); }
-.positional-math .weight-term.active { color: var(--borrowed); font-weight: 600; }
-.positional-math .equals-result { color: #6ee7b7; font-weight: 700; }
 
 .mask-outputs { display: flex; gap: 14px; flex-wrap: wrap; }
 .output-chip {
@@ -620,6 +876,30 @@ body {
   text-align: center;
   padding: 10px;
 }
+/* The "#" column's row numbers (1, 2, 3...) stop at the last visible row
+   before the truncation gap and pick back up after it (e.g. 5, then
+   62, 63, 64). On wide screens the expand button used to be the ONLY
+   content in that row, centered across the FULL table width — nowhere
+   near the left-aligned "#" column the user's eye is actually tracking
+   down. That made the numbering look broken rather than intentionally
+   truncated. This cell sits directly under "#", left-aligned like every
+   other row number, and shows a vertical ellipsis as an explicit "the
+   list continues here" bridge — so the eye scanning straight down column
+   1 sees 1↓2↓3↓4↓5↓⋮↓62↓63↓64 instead of hitting a blank gap. */
+.expansion-row .expansion-index {
+  text-align: left;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  /* Matches .data-table's row-number weight/color exactly — the ⋮ isn't
+     a muted decoration, it's the same "#" sequence, just standing in for
+     the hidden numbers. Bumped slightly above the table's 0.85rem base
+     because a single glyph reads smaller than actual digits at the same
+     font-size; font-weight 700 keeps it from disappearing next to bold
+     numerals. */
+  font-size: 1.05rem;
+  font-weight: 700;
+  line-height: 1;
+}
 .expansion-btn {
   background: none;
   border: 1px dashed var(--text-dim);
@@ -703,6 +983,125 @@ td .deriv-label {
 .role-usable { background: rgba(16, 185, 129, 0.08); color: #a7f3d0; border-color: rgba(16,185,129,0.3); }
 .role-broadcast { background: var(--broadcast-soft); color: #fde68a; border-color: var(--broadcast); }
 
+/* ---------- Panel 6: Classful vs Classless comparison (card style) ---------- */
+/* Two groups side by side on wide screens; each group's min-width forces a
+   wrap onto its own row on narrow screens — no hard breakpoint needed. */
+.compare-groups {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 20px;
+}
+.compare-group {
+  flex: 1 1 320px;
+  min-width: 280px;
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  padding: 16px;
+}
+.compare-group-classful { border-top: 3px solid var(--locked); }
+.compare-group-classless { border-top: 3px solid var(--borrowed); }
+
+.compare-group-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.compare-group-classful .compare-group-head { color: #93c5fd; }
+.compare-group-classless .compare-group-head { color: #fcd34d; }
+.compare-group-head h3 { font-size: 0.95rem; margin: 0; font-weight: 700; }
+
+/* Common stats shared by every card in the group — shown once, not
+   repeated per subnet. */
+.compare-common-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 16px;
+  padding-bottom: 14px;
+  border-bottom: 1px dashed var(--border-soft);
+}
+.compare-stat {
+  flex: 1 1 120px;
+  min-width: 110px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.compare-stat-label {
+  font-size: 0.68rem;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.compare-stat-value {
+  font-family: var(--font-mono);
+  font-size: 0.95rem;
+  color: var(--text-primary);
+  font-weight: 700;
+}
+
+/* Per-network/per-subnet cards. Wrap freely — 1 card for Classful, N cards
+   for Classless — same wrapping approach keeps both groups responsive. */
+.compare-cards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.compare-card {
+  flex: 1 1 170px;
+  min-width: 160px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.compare-card-index {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.compare-group-classful .compare-card-index { color: #93c5fd; }
+.compare-group-classless .compare-card-index { color: #fcd34d; }
+.compare-card-row {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.compare-card-label {
+  font-size: 0.65rem;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.compare-card-value {
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  color: var(--text-primary);
+  word-break: break-word;
+}
+
+/* Expand/collapse card for the >8 subnet truncation rule — same visual
+   language as Panels 4/5's expansion-row bar. */
+.compare-expand-card {
+  flex: 1 1 100%;
+  display: flex;
+  justify-content: center;
+  padding: 6px 0;
+}
+
 /* ---------- Footer ---------- */
 .app-footer {
   text-align: center;
@@ -729,17 +1128,181 @@ body.presenter-mode .weight-row-main .weight-num {
 }
 
 /* ---------- Responsive ---------- */
+
+/* ---------- Panel 2 responsive layout ---------- */
+/* Above ~900px there's enough room for the full 32-bit row (4 octets
+   side-by-side) as originally designed. Below that, squeezing 4 octets
+   worth of 8 bit-cells each onto one row makes every cell too small to
+   read or tap reliably on tablets/phones — so instead of shrinking
+   further, the grid itself reflows: 2 octets per row down to ~900px,
+   then 1 octet per row (fully stacked) below ~480px. Each .octet-block
+   already carries its own "Octet N" label, so the connecting dot
+   separators (which only make sense read left-to-right on one line) are
+   hidden once the grid wraps — no information is lost. Because each
+   .octet-block is a container (container-type: inline-size), the
+   octet-total's cqi-based font-size scales up automatically as the block
+   gets a bigger share of the row, so totals stay proportionally large
+   without any extra rules here. */
+@media (max-width: 900px) {
+  .bit-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    row-gap: 22px;
+  }
+  .octet-block { width: 100%; }
+  .octet-dot-separator { display: none; }
+}
+
 @media (max-width: 640px) {
   .app-header { padding: 14px 16px; }
   .octet-field input { width: 58px; }
+  .octet-row-cidr-suffix { font-size: 1.05rem; padding-bottom: 8px; }
   .bit-grid { column-gap: 6px; }
   .mask-binary { column-gap: 6px; }
   .bit-cell { font-size: 0.6rem; }
+  .bit-cell .lock-icon { font-size: 0.42rem; }
+  .bit-cell.locked { gap: 2px; }
   .weight-row-main .weight-num { font-size: 0.48rem; }
   .mask-bit { font-size: 0.62rem; }
   .weight-row-mask .weight-num { font-size: 0.48rem; }
   .octet-dot-separator { padding-bottom: 10px; font-size: 0.95rem; }
   .mask-dot-separator { padding-bottom: 8px; font-size: 0.85rem; }
+
+  /* Header toggle: drop the "Octet Display:" label and shrink the
+     segmented buttons so "Bit Visualization" / "Decimal Only" (each a
+     nowrap unit) can't force the document wider than the viewport. */
+  .view-mode-label { display: none; }
+  .segment-btn { padding: 7px 8px; font-size: 0.72rem; }
+
+  /* The chip's causal caret ("— sets the N rows below") is reinforcement,
+     not the core fact — drop it first on narrow screens so the chip
+     doesn't dominate the header row. The icon + count/subnet id remain. */
+  .panel-meta .meta-caret { display: none; }
+  .panel-meta { font-size: 0.8rem; padding: 6px 12px; }
+
+  /* ---------------------------------------------------------------
+     Panel 3 mobile layout: decimal-left / bits-right, 4 rows stacked
+     ---------------------------------------------------------------
+     Desktop reads the mask as 4 octets side-by-side (total -> weights ->
+     bits -> label, top-to-bottom, repeated 4x left-to-right). On a narrow
+     screen that squeezes each octet's 8 bit cells into a sliver too small
+     to read. Below 640px this switches to 4 stacked rows instead: each
+     row is [decimal total | weights+bits+label], so the left column read
+     top-to-bottom reconstructs the dotted-decimal mask (e.g. "255 / 255 /
+     255 / 224") and the right column read top-to-bottom is that same
+     value's binary derivation, row-aligned with its decimal partner.
+     No markup changes needed — app.js already emits each octet block as
+     [.octet-total-mask, .weight-row-mask, .mask-bit-row, .octet-viz-label]
+     in that DOM order; this just re-places those same four children onto
+     a 2-column grid instead of their default top-to-bottom flow. */
+  .mask-binary {
+    flex-direction: column;
+    align-items: stretch;
+    row-gap: 16px;
+  }
+  /* The "." separator only reads correctly between horizontally adjacent
+     octets — once they're stacked, a lone dot between rows is confusing.
+     A bottom border on each block (added below) replaces it as the
+     row-to-row divider. */
+  .mask-dot-separator { display: none; }
+
+  .mask-octet-block {
+    display: grid;
+    /* Fixed width, not auto: each .mask-octet-block is its own independent
+       grid (one per row), so an auto-sized column1 would size itself to
+       THAT row's own digit count — "255" (3 digits) gets a wider column1
+       than "0" (1 digit), shifting where column2 starts and breaking
+       alignment between rows. A shared fixed width guarantees column2
+       begins at the same x-position on every row regardless of the
+       decimal value's length. rem (not ch/em) so it's independent of the
+       total's own larger clamped font-size. */
+    grid-template-columns: 3.6rem 1fr;
+    column-gap: 14px;
+    row-gap: 4px;
+    align-items: center;
+    width: 100%;
+    padding-bottom: 14px;
+    border-bottom: 1px dashed var(--border-soft);
+    container-type: normal; /* fixed rem sizing below replaces cqi here */
+  }
+  .mask-octet-block:last-child {
+    padding-bottom: 0;
+    border-bottom: none;
+  }
+  .mask-octet-block .octet-total-mask {
+    grid-column: 1;
+    grid-row: 1 / span 3;
+    /* Stretch to fill the fixed-width column (not justify-self: start) and
+       right-align the digits within it, so the divider border always sits
+       at the same fixed offset and the number reads flush against it —
+       whether it's "0" or "255". */
+    justify-self: stretch;
+    align-self: center;
+    text-align: right;
+    font-size: clamp(1.15rem, 7vw, 1.7rem);
+    padding-right: 12px;
+    border-right: 1px solid var(--border-soft);
+  }
+  .mask-octet-block .weight-row-mask {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  .mask-octet-block .weight-row-mask .weight-num {
+    font-size: 0.62rem;
+  }
+  .mask-octet-block .mask-bit-row {
+    grid-column: 2;
+    grid-row: 2;
+  }
+  .mask-octet-block .mask-bit {
+    font-size: 0.85rem;
+  }
+  .mask-octet-block .octet-viz-label {
+    grid-column: 2;
+    grid-row: 3;
+    text-align: left;
+  }
+}
+
+/* Below ~480px, drop to a single stacked octet per row. Placed after the
+   640px block so these overrides win the cascade (both blocks match at
+   these widths, and source order breaks the tie between equal-specificity
+   rules) — otherwise the 640px block's smaller fixed .bit-cell font-size
+   would clobber the larger size intended here. */
+@media (max-width: 480px) {
+  .bit-grid {
+    grid-template-columns: 1fr;
+    row-gap: 18px;
+  }
+  /* Cells are now much wider (full octet-block width instead of 1/4 of
+     it), so bump the bit value and weight-row fonts up to use the extra
+     space rather than leaving them pinned at phone-cramped sizes. */
+  .bit-cell { font-size: clamp(0.85rem, 4vw, 1.1rem); }
+  .bit-cell .lock-icon { font-size: clamp(0.6rem, 2.6vw, 0.8rem); }
+  .weight-row-main .weight-num { font-size: clamp(0.62rem, 2.6vw, 0.78rem); }
+}
+
+/* Below ~400px (iPhone SE and similar in DevTools device mode), the 4
+   octet inputs + 3 dot separators + panel padding can still exceed the
+   viewport even at the 58px input width set above. Shrink further and
+   tighten the dots so the row itself never needs to overflow. */
+@media (max-width: 400px) {
+  .octet-input-row { gap: 4px; }
+  .octet-field input { width: 46px; padding: 8px 4px; font-size: 0.9rem; }
+  .dot { font-size: 1.1rem; padding-bottom: 8px; }
+  .octet-row-cidr-suffix { font-size: 0.95rem; margin-left: 2px; }
+  .segment-btn span { display: none; }
+  .segment-btn { padding: 7px; font-size: 0.9rem; }
+
+  /* Panel 3 mobile grid (see 640px block): a bit more headroom is needed
+     at this width, so trim the decimal column and bit/weight fonts
+     slightly further rather than letting the row get tight against the
+     panel edge. Column width shrinks too, but stays FIXED (not auto) so
+     the "255" vs "0" alignment fix above still holds at this size. */
+  .mask-octet-block { grid-template-columns: 2.8rem 1fr; }
+  .mask-octet-block .octet-total-mask { font-size: 1.05rem; padding-right: 8px; }
+  .mask-octet-block .weight-row-mask .weight-num { font-size: 0.55rem; }
+  .mask-octet-block .mask-bit { font-size: 0.72rem; }
 }
 
 /* Focus visibility */
