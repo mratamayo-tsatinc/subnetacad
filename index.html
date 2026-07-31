@@ -15,7 +15,20 @@
       <h1>Subnetify</h1>
       <span class="brand-sub">CIDR &amp; Subnetting Visualizer</span>
     </div>
-    <button id="presenterToggle" class="presenter-toggle" type="button"><i class="fa-solid fa-tv"></i> Presenter Mode</button>
+    <div class="header-actions">
+      <div class="view-mode-global" role="group" aria-label="Global octet display mode">
+        <span class="view-mode-label secondary-copy">Octet Display:</span>
+        <div class="segmented" id="globalViewModeSegmented">
+          <button class="segment-btn active" data-mode="viz" type="button">
+            <i class="fa-solid fa-table-cells"></i> <span>Bit Visualization</span>
+          </button>
+          <button class="segment-btn" data-mode="decimal" type="button">
+            <i class="fa-solid fa-hashtag"></i> <span>Decimal Only</span>
+          </button>
+        </div>
+      </div>
+      <button id="presenterToggle" class="presenter-toggle" type="button"><i class="fa-solid fa-tv"></i> Presenter Mode</button>
+    </div>
   </header>
 
   <main class="app-main">
@@ -31,38 +44,39 @@
 
       <div class="panel-body panel1-body">
         <div class="octet-input-row">
-          <label class="octet-field">
-            <span class="octet-label">Octet 1</span>
+          <div class="octet-field class-field" id="classFieldWrap">
+            <span class="octet-label">Class</span>
+            <span class="class-value" id="classBadge">C</span>
+          </div>
+          <span class="row-divider" aria-hidden="true">|</span>
+          <label class="octet-field" id="octetField0">
+            <span class="octet-label">Octet 1 <i class="fa-solid fa-lock octet-lock-icon hidden" id="octetLock0" title="Locked by class"></i></span>
             <input type="number" min="0" max="255" id="octet0" value="192" inputmode="numeric">
           </label>
           <span class="dot">.</span>
-          <label class="octet-field">
-            <span class="octet-label">Octet 2</span>
+          <label class="octet-field" id="octetField1">
+            <span class="octet-label">Octet 2 <i class="fa-solid fa-lock octet-lock-icon hidden" id="octetLock1" title="Locked by class"></i></span>
             <input type="number" min="0" max="255" id="octet1" value="168" inputmode="numeric">
           </label>
           <span class="dot">.</span>
-          <label class="octet-field">
-            <span class="octet-label">Octet 3</span>
+          <label class="octet-field" id="octetField2">
+            <span class="octet-label">Octet 3 <i class="fa-solid fa-lock octet-lock-icon hidden" id="octetLock2" title="Locked by class"></i></span>
             <input type="number" min="0" max="255" id="octet2" value="1" inputmode="numeric">
           </label>
           <span class="dot">.</span>
-          <label class="octet-field">
-            <span class="octet-label">Octet 4</span>
+          <label class="octet-field" id="octetField3">
+            <span class="octet-label">Octet 4 <i class="fa-solid fa-lock octet-lock-icon hidden" id="octetLock3" title="Locked by class"></i></span>
             <input type="number" min="0" max="255" id="octet3" value="0" inputmode="numeric">
           </label>
+          <span class="decimal-cidr-suffix octet-row-cidr-suffix" id="cidrBadge" title="Classful network boundary — see Panel 2 for the live classless CIDR after borrowing bits">/24</span>
         </div>
+        <p class="panel-hint secondary-copy octet-lock-hint">Only the octets that make up the classful network portion are editable — the rest stay at 0 and lock automatically as the class changes.</p>
 
         <div class="presets-row">
           <span class="presets-label">Presets:</span>
           <button class="preset-btn preset-a" data-preset="A" type="button">Class A · 10.0.0.0</button>
           <button class="preset-btn preset-b" data-preset="B" type="button">Class B · 172.16.0.0</button>
           <button class="preset-btn preset-c" data-preset="C" type="button">Class C · 192.168.1.0</button>
-        </div>
-
-        <div class="badges-row">
-          <span class="badge badge-class" id="classBadge">Class C</span>
-          <span class="badge badge-cidr" id="cidrBadge">/24</span>
-          <span class="badge badge-borrow" id="borrowBadge">3 bits borrowed</span>
         </div>
 
         <div id="warningBanner" class="warning-banner hidden"></div>
@@ -76,14 +90,26 @@
       <div class="panel-head">
         <span class="panel-index">02</span>
         <h2>Unified 32-Bit Grid &amp; the CIDR Curtain</h2>
+        <span class="badge badge-borrow" id="borrowBadgeWrap">
+          <span id="borrowBadge">3 bits borrowed</span>
+          <button id="resetBorrowBtn" class="badge-icon-btn" type="button"
+            title="Reset to classful (0 bits borrowed)" aria-label="Reset borrowed bits to classful (0 bits borrowed)">
+            <i class="fa-solid fa-rotate-left"></i>
+          </button>
+        </span>
+        <label class="panel-view-label">
+          <span class="secondary-copy">Display:</span>
+          <select class="panel-view-select" id="panel2ViewMode" aria-label="Panel 2 display mode">
+            <option value="global">Use Global Setting</option>
+            <option value="viz">Bit Visualization</option>
+            <option value="decimal">Decimal Only</option>
+          </select>
+        </label>
       </div>
-      <p class="panel-hint secondary-copy">Click any unlocked bit to move the subnet boundary. Blue bits are locked by the IP class, amber bits are borrowed for subnetting, green bits remain for hosts.</p>
+      <p class="panel-hint secondary-copy" id="panel2Hint">Click any unlocked bit to move the subnet boundary. Blue bits are locked by the IP class, amber bits are borrowed for subnetting, green bits remain for hosts.</p>
       <div class="panel-body">
-        <div class="bit-grid-toolbar">
-          <button id="resetBorrowBtn" class="reset-btn" type="button"><i class="fa-solid fa-rotate-left"></i> Reset to Classful (0 bits borrowed)</button>
-        </div>
         <div id="bitGrid" class="bit-grid"></div>
-        <div class="legend secondary-copy">
+        <div class="legend secondary-copy" id="bitGridLegend">
           <span><i class="swatch swatch-locked"></i> Locked network bit</span>
           <span><i class="swatch swatch-borrowed"></i> Borrowed subnet bit</span>
           <span><i class="swatch swatch-host"></i> Host bit</span>
@@ -92,12 +118,20 @@
     </section>
 
     <!-- ============================================================ -->
-    <!-- PANEL 3 — DUAL MASK TRANSFORMATION -->
+    <!-- PANEL 3 — SUBNET MASK AND CIDR -->
     <!-- ============================================================ -->
     <section class="panel" id="panel3">
       <div class="panel-head">
         <span class="panel-index">03</span>
-        <h2>Dual Mask Transformation &amp; Positional Math</h2>
+        <h2>Subnet Mask and CIDR</h2>
+        <label class="panel-view-label">
+          <span class="secondary-copy">Display:</span>
+          <select class="panel-view-select" id="panel3ViewMode" aria-label="Panel 3 display mode">
+            <option value="global">Use Global Setting</option>
+            <option value="viz">Bit Visualization</option>
+            <option value="decimal">Decimal Only</option>
+          </select>
+        </label>
       </div>
       <div class="panel-body">
         <div class="mask-compare">
@@ -113,8 +147,6 @@
             <div class="mask-decimal" id="classlessMaskDecimal"></div>
           </div>
         </div>
-
-        <div class="positional-math" id="positionalMath"></div>
 
         <div class="mask-outputs">
           <div class="output-chip">
@@ -140,6 +172,14 @@
         <button id="subnetFormulaToggle" class="formula-toggle-btn" type="button" aria-expanded="false" aria-controls="subnetFormulaBox">
           <i class="fa-solid fa-square-root-variable"></i> Show Formula
         </button>
+        <label class="panel-view-label">
+          <span class="secondary-copy">Display:</span>
+          <select class="panel-view-select" id="panel4ViewMode" aria-label="Panel 4 display mode">
+            <option value="global">Use Global Setting</option>
+            <option value="viz">Bit Visualization</option>
+            <option value="decimal">Decimal Only</option>
+          </select>
+        </label>
       </div>
       <div class="panel-body">
         <div id="subnetFormulaBox" class="formula-box formula-box-subnet hidden"></div>
@@ -148,10 +188,8 @@
             <thead>
               <tr>
                 <th>#</th>
-                <th>Borrowed Bits Pattern</th>
-                <th>Subnet Index (Decimal)</th>
-                <th>Octet Bits</th>
-                <th>Subnet ID (Decimal)</th>
+                <th>Subnet Index</th>
+                <th>Octet Bits &amp; Subnet ID (Decimal)</th>
                 <th class="icon-col"><i class="fa-solid fa-magnifying-glass" title="Inspect"></i></th>
               </tr>
             </thead>
@@ -172,6 +210,14 @@
         <button id="hostFormulaToggle" class="formula-toggle-btn" type="button" aria-expanded="false" aria-controls="hostFormulaBox">
           <i class="fa-solid fa-square-root-variable"></i> Show Formula
         </button>
+        <label class="panel-view-label">
+          <span class="secondary-copy">Display:</span>
+          <select class="panel-view-select" id="panel5ViewMode" aria-label="Panel 5 display mode">
+            <option value="global">Use Global Setting</option>
+            <option value="viz">Bit Visualization</option>
+            <option value="decimal">Decimal Only</option>
+          </select>
+        </label>
       </div>
       <div class="panel-body">
         <div id="hostFormulaBox" class="formula-box formula-box-host hidden"></div>
@@ -180,15 +226,49 @@
             <thead>
               <tr>
                 <th>#</th>
-                <th>IP Address</th>
                 <th class="weights-header">
-                  <div class="weights-caption secondary-copy">Borrowed + Host Bits, by Octet — weights shown per row</div>
+                  IP Address — Octet Bits &amp; Decimal
+                  <div class="weights-caption secondary-copy">All 4 Octets — Locked, Borrowed &amp; Host Bits, weights shown per row</div>
                 </th>
                 <th>Role</th>
               </tr>
             </thead>
             <tbody id="hostTableBody"></tbody>
           </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================ -->
+    <!-- PANEL 6 — CLASSFUL VS CLASSLESS COMPARISON -->
+    <!-- ============================================================ -->
+    <section class="panel" id="panel6">
+      <div class="panel-head">
+        <span class="panel-index">06</span>
+        <h2>Classful vs. Classless Comparison</h2>
+      </div>
+      <p class="panel-hint secondary-copy">Plain decimal recap — the original classful network next to every classless subnet it was split into.</p>
+      <div class="panel-body">
+        <div class="compare-groups">
+
+          <div class="compare-group compare-group-classful">
+            <div class="compare-group-head">
+              <i class="fa-solid fa-lock"></i>
+              <h3>Classful (Original)</h3>
+            </div>
+            <div class="compare-common-stats" id="classfulCompareStats"></div>
+            <div class="compare-cards" id="classfulCompareCards"></div>
+          </div>
+
+          <div class="compare-group compare-group-classless">
+            <div class="compare-group-head">
+              <i class="fa-solid fa-diagram-project"></i>
+              <h3>Classless (Subnetted)</h3>
+            </div>
+            <div class="compare-common-stats" id="classlessCompareStats"></div>
+            <div class="compare-cards" id="classlessCompareCards"></div>
+          </div>
+
         </div>
       </div>
     </section>
