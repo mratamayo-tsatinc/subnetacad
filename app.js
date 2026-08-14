@@ -1,4 +1,3228 @@
+/* =========================================================
+   BINARY / IP CONVERSION ACTIVITY — CONFIG
+   Each phase is configured independently: enable/disable it and set its
+   own question count (and, where relevant, its own bit width/decimal
+   range/CIDR list) without affecting any other phase.
+========================================================= */
+const QUESTION_CONFIG = {
+    // Phase 1: Decimal -> Binary
+    phase1: {
+        enabled: true,
+        numQuestions: 5,
+        bitWidth: 8,
+        decMin: 0,
+        decMax: 255
+    },
+
+    // Phase 2: Binary -> Decimal
+    phase2: {
+        enabled: true,
+        numQuestions: 5,
+        bitWidth: 8,
+        decMin: 0,
+        decMax: 255
+    },
+
+    // Phase 3: IP address, Decimal -> Binary
+    phase3: {
+        enabled: true,
+        numQuestions: 4
+    },
+
+    // Phase 4: IP address, Binary -> Decimal
+    phase4: {
+        enabled: true,
+        numQuestions: 4
+    },
+
+    // Phase 5: Subnet mask, CIDR -> dotted-decimal
+    phase5: {
+        enabled: true,
+        numQuestions: 10,
+        cidrList: "8,10,16,18,24,25,26,27,28,29,30"
+    },
+
+    // Phase 6: Subnet mask, dotted-decimal -> Binary
+    phase6: {
+        enabled: true,
+        numQuestions: 10,
+        cidrList: "8,10,16,18,24,25,26,27,28,29,30"
+    },
+
+    // Phase 7: classful CIDR identification — given an IP address, identify
+    // its default CIDR prefix based on address class (A: 1–126 -> /8,
+    // B: 128–191 -> /16, C: 192–223 -> /24). Loopback (127.x) is excluded.
+    phase7: {
+        enabled: true,
+        numQuestions: 10
+    },
+
+    // Grading
+    strictLeadingZeros: true // binary answers must match bit-width exactly
+};
+
+let studentDatabase = [];
+let exerciseData = {}; 
+let currentFile = "";
+let currentUser = "";
+
+// Settings and Mode Management
+let appSettings = {
+    mode: 'practice', // 'practice' or 'exam'
+    timerMinutes: 10,
+    autoShowSample: true, // whether the console panel auto-opens when an exercise has sample output; device-based default set below
+    practiceQuestionMode: 'fixed' // 'fixed' (same set every time — legacy behavior) or 'random' (fresh set each practice session)
+};
+
+// Holds the seed for the current practice session when
+// appSettings.practiceQuestionMode === 'random'. Generated once per login
+// (see loadAllExercises) so the question set stays stable for the
+// duration of that session — switching exercises or reloading the
+// settings modal doesn't reshuffle it — but a fresh login produces a new
+// random set. Reset to null on logout-equivalent state so a later login
+// in random mode is guaranteed to regenerate rather than accidentally
+// reusing a stale value.
+let currentPracticeSeed = null;
+
+// Builds a seed string that's different on every call — timestamp plus a
+// random component, so even two logins in the same millisecond can't
+// collide.
+function generateRandomPracticeSeed() {
+    return `practice-${Date.now()}-${Math.floor(Math.random() * 1e9)}`;
+}
+
+let timerIntervalId = null;
+let timeRemaining = 0; // in seconds
+let examEndTimestamp = null; // epoch ms the exam timer should expire at; persisted per-student so a reload resumes the real deadline instead of granting a fresh timer
+
+window.onload = async function() {
+    // Native HTML5 drag-and-drop (used for line ordering) does not fire on
+    // touchscreens. Flag touch devices so CSS can hide the drag handle and
+    // reveal the Up/Down buttons and Jump-to dropdown instead.
+    const isTouchDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+    if (isTouchDevice) {
+        document.body.classList.add('touch-device');
+    }
+
+    // The sidebar defaults to open on desktop and closed on mobile, so the
+    // hamburger button's label needs to match whichever is current.
+    initSidebarToggleLabel();
+
+    // The global "auto-show sample output" setting defaults to ON on
+    // desktop (room to show it automatically) and OFF on mobile (screen
+    // space is tight). It's a one-time default only — from here on it's a
+    // normal setting the student can flip in the Settings modal, and the
+    // drawer tab is always available to pull the console into view by hand
+    // regardless of this setting.
+    initSampleAutoShowDefault();
+
+    try {
+        const res = await fetch('students.csv');
+        const text = await res.text();
+        const rows = text.split('\n').slice(1);
+        studentDatabase = rows.map(row => {
+            const [email, id] = row.split(',');
+            return { email: email?.trim(), id: id?.trim() };
+        });
+    } catch (err) { console.error("Database failed to load."); }
+};
+
+// --- HAMBURGER MENU / OFF-CANVAS SIDEBAR (mobile: overlay) ---
+function openSidebar() {
+    document.getElementById('sidebarNav').classList.add('sidebar-open');
+    document.getElementById('sidebarBackdrop').classList.add('show');
+    document.getElementById('sidebarToggleBtn').setAttribute('aria-expanded', 'true');
+    document.getElementById('sidebarToggleBtn').setAttribute('aria-label', 'Hide exercise list');
+    // Prevent the page behind the panel from scrolling while it's open
+    document.body.style.overflow = 'hidden';
+}
+
+function closeSidebar() {
+    document.getElementById('sidebarNav').classList.remove('sidebar-open');
+    document.getElementById('sidebarBackdrop').classList.remove('show');
+    document.getElementById('sidebarToggleBtn').setAttribute('aria-expanded', 'false');
+    document.getElementById('sidebarToggleBtn').setAttribute('aria-label', 'Show exercise list');
+    document.body.style.overflow = '';
+}
+
+// --- LIVE TIMESTAMP (day, date, time — seconds re-animate on every tick) ---
+function startUserClock() {
+    updateUserTimestamp();
+    setInterval(updateUserTimestamp, 1000);
+}
+
+function updateUserTimestamp() {
+    const el = document.getElementById('userTimestamp');
+    if (!el) return;
+
+    const now = new Date();
+    const dayName = now.toLocaleDateString(undefined, { weekday: 'long' });
+    const dateStr = now.toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' });
+
+    let hours = now.getHours();
+    const period = hours >= 12 ? 'PM' : 'AM';
+    hours = hours % 12 || 12;
+    const minutes = now.getMinutes().toString().padStart(2, '0');
+    const seconds = now.getSeconds().toString().padStart(2, '0');
+
+    el.innerHTML = `<div class="timestamp-date">${dayName}, ${dateStr}</div><div class="timestamp-time">${hours}:${minutes}<span class="timestamp-seconds" id="timestampSeconds">:${seconds}</span> ${period}</div>`;
+
+    // Restart the pulse animation each tick so the seconds visibly "beat"
+    // in sync with the clock, rather than animating once and going static.
+    const secondsEl = document.getElementById('timestampSeconds');
+    if (secondsEl) {
+        secondsEl.classList.remove('tick');
+        void secondsEl.offsetWidth; // force reflow to restart the CSS animation
+        secondsEl.classList.add('tick');
+    }
+}
+
+// --- SIDEBAR WATERMARK (screenshot deterrent) ---
+// Renders a faint, randomly-generated QR-code-like pattern behind the
+// sidebar. It isn't a real scannable code — it's just visual noise meant
+// to make it obvious/awkward if a student tries to pass off an edited
+// screenshot of their scores as the genuine app, since a fresh random
+// pattern is drawn every login and a doctored screenshot would need to
+// fake it convincingly too.
+function classifyQrModule(x, y, moduleCount) {
+    // Three finder-pattern corners (top-left, top-right, bottom-left),
+    // each with a 1-module quiet border, like a real QR code.
+    const finderZones = [
+        { x0: 0, y0: 0 },
+        { x0: moduleCount - 7, y0: 0 },
+        { x0: 0, y0: moduleCount - 7 }
+    ];
+
+    for (const zone of finderZones) {
+        const lx = x - zone.x0;
+        const ly = y - zone.y0;
+        if (lx >= -1 && lx <= 7 && ly >= -1 && ly <= 7) {
+            if (lx < 0 || lx > 6 || ly < 0 || ly > 6) return 'blank'; // quiet zone
+            const onBorder = (lx === 0 || lx === 6 || ly === 0 || ly === 6);
+            const inCenter = (lx >= 2 && lx <= 4 && ly >= 2 && ly <= 4);
+            return (onBorder || inCenter) ? 'filled' : 'blank';
+        }
+    }
+
+    // Timing strips: alternating modules along row/column 6, outside the finders
+    if (y === 6 || x === 6) {
+        return ((x + y) % 2 === 0) ? 'filled' : 'blank';
+    }
+
+    return 'data';
+}
+
+function generateQrWatermarkDataUrl() {
+    const moduleCount = 21;
+    const moduleSize = 6;
+    const size = moduleCount * moduleSize;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d');
+
+    ctx.clearRect(0, 0, size, size);
+    ctx.fillStyle = 'rgba(98, 0, 238, 0.05)'; // subtle — matches the theme's primary color
+
+    for (let y = 0; y < moduleCount; y++) {
+        for (let x = 0; x < moduleCount; x++) {
+            const type = classifyQrModule(x, y, moduleCount);
+            let filled;
+            if (type === 'filled') filled = true;
+            else if (type === 'blank') filled = false;
+            else filled = Math.random() < 0.42; // random "data" noise
+
+            if (filled) {
+                ctx.fillRect(x * moduleSize, y * moduleSize, moduleSize, moduleSize);
+            }
+        }
+    }
+
+    return canvas.toDataURL('image/png');
+}
+
+function applySidebarWatermark() {
+    const sidebar = document.getElementById('sidebarNav');
+    if (!sidebar) return;
+    sidebar.style.backgroundImage = `url(${generateQrWatermarkDataUrl()})`;
+    sidebar.style.backgroundRepeat = 'repeat';
+}
+
+// --- SIDEBAR COLLAPSE (desktop: in-layout panel, no backdrop/scroll-lock) ---
+function collapseDesktopSidebar() {
+    document.getElementById('sidebarNav').classList.add('sidebar-collapsed');
+    document.getElementById('sidebarToggleBtn').setAttribute('aria-expanded', 'false');
+    document.getElementById('sidebarToggleBtn').setAttribute('aria-label', 'Show exercise list');
+}
+
+function expandDesktopSidebar() {
+    document.getElementById('sidebarNav').classList.remove('sidebar-collapsed');
+    document.getElementById('sidebarToggleBtn').setAttribute('aria-expanded', 'true');
+    document.getElementById('sidebarToggleBtn').setAttribute('aria-label', 'Hide exercise list');
+}
+
+// Single entry point for the hamburger button. Behavior depends on viewport:
+// on mobile the sidebar is an off-canvas overlay (hidden by default), on
+// desktop it's a normal layout panel (visible by default) that can now be
+// collapsed to reclaim horizontal space.
+function toggleSidebar() {
+    const sidebar = document.getElementById('sidebarNav');
+    const isMobile = window.matchMedia('(max-width: 768px)').matches;
+
+    if (isMobile) {
+        if (sidebar.classList.contains('sidebar-open')) {
+            closeSidebar();
+        } else {
+            openSidebar();
+        }
+    } else {
+        if (sidebar.classList.contains('sidebar-collapsed')) {
+            expandDesktopSidebar();
+        } else {
+            collapseDesktopSidebar();
+        }
+    }
+}
+
+// Set the hamburger button's initial label to match each breakpoint's
+// default sidebar state (open on desktop, closed on mobile) — otherwise
+// the aria-label baked into the HTML would only be correct for mobile.
+function initSidebarToggleLabel() {
+    const isMobile = window.matchMedia('(max-width: 768px)').matches;
+    const btn = document.getElementById('sidebarToggleBtn');
+    if (!btn) return;
+    if (isMobile) {
+        btn.setAttribute('aria-expanded', 'false');
+        btn.setAttribute('aria-label', 'Show exercise list');
+    } else {
+        btn.setAttribute('aria-expanded', 'true');
+        btn.setAttribute('aria-label', 'Hide exercise list');
+    }
+}
+
+// --- SAMPLE OUTPUT: GLOBAL AUTO-SHOW SETTING ---
+// This is a global preference (configured in the Settings modal) rather
+// than a per-exercise control: it decides whether the console panel opens
+// automatically whenever the student switches to an activity that has
+// sample output. Manually pulling the panel into view for any individual
+// activity is handled separately by the drawer tab.
+function initSampleAutoShowDefault() {
+    const isMobile = window.matchMedia('(max-width: 768px)').matches;
+    appSettings.autoShowSample = !isMobile;
+}
+
+function applyAutoShowForCurrentExercise() {
+    if (!currentFile) return;
+    const ex = exerciseData[currentFile];
+    const hasSampleOutput = !!(ex && ex.sampleOutput && ex.sampleOutput.trim().length > 0);
+    if (hasSampleOutput && appSettings.autoShowSample) {
+        showSampleOutput(currentFile);
+    } else {
+        closeSampleOutputModal();
+    }
+}
+
+// Close the off-canvas panel automatically after picking an exercise, but
+// only on screens narrow enough that the sidebar is an overlay in the
+// first place — on desktop the sidebar stays put (collapsing is a manual,
+// explicit choice there, not something exercise selection should trigger).
+function closeSidebarIfMobile() {
+    if (window.matchMedia('(max-width: 768px)').matches) {
+        closeSidebar();
+    }
+}
+
+// Close on Escape for keyboard users (mobile overlay only — desktop's
+// collapsed sidebar isn't a modal, so Escape shouldn't touch it)
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+        const sidebar = document.getElementById('sidebarNav');
+        if (sidebar && sidebar.classList.contains('sidebar-open')) {
+            closeSidebar();
+        }
+        const consolePanel = document.getElementById('sampleOutputPanel');
+        if (consolePanel && consolePanel.classList.contains('open')) {
+            closeSampleOutputModal();
+        }
+    }
+});
+
+async function handleLogin() {
+    const email = document.getElementById('emailInput').value.trim();
+    const id = document.getElementById('studentNumInput').value.trim();
+    const user = studentDatabase.find(s => s.email === email && s.id === id);
+    
+    if (user) {
+        currentUser = email;
+        document.getElementById('loginOverlay').style.display = 'none';
+        document.getElementById('appContainer').style.display = 'flex';
+        document.getElementById('userDisplay').textContent = email;
+        startUserClock();
+        applySidebarWatermark();
+
+        const { session: resumedSession, isExpired } = await loadAllExercises();
+
+        // Start timer if in exam mode — resuming the real deadline (not a
+        // fresh countdown) if this student already has a persisted session.
+        if (appSettings.mode === 'exam') {
+            if (isExpired) {
+                // Time was already up (or the exam was already completed)
+                // before this login/reload — stay locked, no timer.
+                stopTimer();
+                document.getElementById('timerContainer').style.display = 'none';
+                document.getElementById('actionButton').disabled = true;
+                saveExamSession();
+            } else if (resumedSession && typeof resumedSession.examEndTimestamp === 'number') {
+                const remaining = Math.max(0, Math.round((resumedSession.examEndTimestamp - Date.now()) / 1000));
+                startTimer(remaining);
+            } else {
+                startTimer();
+            }
+        }
+    } else {
+        const errorEl = document.getElementById('loginError');
+        errorEl.textContent = "❌ Invalid email or student number. Please try again.";
+        errorEl.className = "error-text show";
+    }
+}
+
+// --- PER-STUDENT DETERMINISTIC SHUFFLE ---
+// Simple string hash -> 32-bit seed, used to seed a PRNG so the same
+// student always gets the same "random" exercise order.
+function hashStringToSeed(str) {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+        hash = (hash << 5) - hash + str.charCodeAt(i);
+        hash |= 0; // force 32-bit int
+    }
+    return hash >>> 0;
+}
+
+// mulberry32: small, fast, deterministic PRNG. Given the same seed it
+// always produces the same sequence of numbers.
+function mulberry32(seed) {
+    return function () {
+        seed |= 0; seed = (seed + 0x6D2B79F5) | 0;
+        let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+}
+
+// Returns a shuffled copy of `array`, seeded by `email` so that a given
+// student always gets the same order (stable across reloads/resumed exam
+// sessions), while different students get different orders from each other.
+function shuffleExercisesForStudent(array, email) {
+    const rng = mulberry32(hashStringToSeed(email || ''));
+    const result = [...array];
+    for (let i = result.length - 1; i > 0; i--) {
+        const j = Math.floor(rng() * (i + 1));
+        [result[i], result[j]] = [result[j], result[i]];
+    }
+    return result;
+}
+
+/* =========================================================
+   BINARY / IP CONVERSION ACTIVITY — QUESTION GENERATION
+   Ported from the standalone conversion-lab reference. Uses the
+   same seeded mulberry32 PRNG already defined above, so a given
+   seed string always reproduces the exact same question set.
+========================================================= */
+function randInt(rng, min, max) { return Math.floor(rng() * (max - min + 1)) + min; }
+function pickRandom(rng, arr) { return arr[Math.floor(rng() * arr.length)]; }
+
+function genPhase1Questions(cfg, rng) {
+    // Phase 1: Decimal -> Binary
+    if (!cfg || !cfg.enabled || !cfg.numQuestions) return [];
+    const bitWidth = parseInt(cfg.bitWidth, 10);
+    const capMax = Math.pow(2, bitWidth) - 1;
+    const min = Math.max(0, Math.min(cfg.decMin, capMax));
+    const max = Math.max(min, Math.min(cfg.decMax, capMax));
+
+    const out = [];
+    for (let i = 0; i < cfg.numQuestions; i++) {
+        const dec = randInt(rng, min, max);
+        const bin = dec.toString(2).padStart(bitWidth, '0');
+        out.push({
+            type: 'd2b',
+            promptHtml: `Convert the decimal number <b>${dec}</b> to <b>${bitWidth}-bit</b> binary.`,
+            correct: bin, bitWidth, given: dec
+        });
+    }
+    return out;
+}
+
+function genPhase2Questions(cfg, rng) {
+    // Phase 2: Binary -> Decimal
+    if (!cfg || !cfg.enabled || !cfg.numQuestions) return [];
+    const bitWidth = parseInt(cfg.bitWidth, 10);
+    const capMax = Math.pow(2, bitWidth) - 1;
+    const min = Math.max(0, Math.min(cfg.decMin, capMax));
+    const max = Math.max(min, Math.min(cfg.decMax, capMax));
+
+    const out = [];
+    for (let i = 0; i < cfg.numQuestions; i++) {
+        const dec = randInt(rng, min, max);
+        const bin = dec.toString(2).padStart(bitWidth, '0');
+        out.push({
+            type: 'b2d',
+            promptHtml: `Convert the binary number below to decimal.`,
+            correct: String(dec), bitWidth, given: bin
+        });
+    }
+    return out;
+}
+
+function randomIP(rng) { return [randInt(rng, 0, 255), randInt(rng, 0, 255), randInt(rng, 0, 255), randInt(rng, 0, 255)]; }
+function ipToBinDotted(ip) { return ip.map(o => o.toString(2).padStart(8, '0')).join('.'); }
+
+function genPhase3Questions(cfg, rng) {
+    // Phase 3: IP address, Decimal -> Binary
+    if (!cfg || !cfg.enabled || !cfg.numQuestions) return [];
+    const out = [];
+    for (let i = 0; i < cfg.numQuestions; i++) {
+        const ip = randomIP(rng);
+        const decStr = ip.join('.');
+        const binStr = ipToBinDotted(ip);
+        out.push({ type: 'ip_d2b', promptHtml: `Convert the IP address <b>${decStr}</b> to binary (8 bits per octet).`, correct: binStr, given: decStr });
+    }
+    return out;
+}
+
+function genPhase4Questions(cfg, rng) {
+    // Phase 4: IP address, Binary -> Decimal
+    if (!cfg || !cfg.enabled || !cfg.numQuestions) return [];
+    const out = [];
+    for (let i = 0; i < cfg.numQuestions; i++) {
+        const ip = randomIP(rng);
+        const decStr = ip.join('.');
+        const binStr = ipToBinDotted(ip);
+        out.push({ type: 'ip_b2d', promptHtml: `Convert the binary IP address <b>${binStr}</b> to dotted-decimal.`, correct: decStr, given: binStr });
+    }
+    return out;
+}
+
+function genPhase5Questions(cfg, rng) {
+    // Phase 5: Subnet mask, CIDR -> dotted-decimal
+    if (!cfg || !cfg.enabled || !cfg.numQuestions) return [];
+    const cidrOptions = (cfg.cidrList || "").split(',').map(x => parseInt(x.trim(), 10)).filter(n => !isNaN(n) && n >= 1 && n <= 32);
+    if (cidrOptions.length === 0) return [];
+
+    const out = [];
+    for (let i = 0; i < cfg.numQuestions; i++) {
+        const cidr = pickRandom(rng, cidrOptions);
+        const maskBits = '1'.repeat(cidr) + '0'.repeat(32 - cidr);
+        const octetsBin = [maskBits.substr(0, 8), maskBits.substr(8, 8), maskBits.substr(16, 8), maskBits.substr(24, 8)];
+        const octetsDec = octetsBin.map(o => parseInt(o, 2));
+        const decStr = octetsDec.join('.');
+        out.push({ type: 'mask_c2d', promptHtml: `Convert the subnet mask <b>/${cidr}</b> (CIDR) to dotted-decimal notation.`, correct: decStr, given: cidr });
+    }
+    return out;
+}
+
+function genPhase6Questions(cfg, rng) {
+    // Phase 6: Subnet mask, dotted-decimal -> Binary
+    if (!cfg || !cfg.enabled || !cfg.numQuestions) return [];
+    const cidrOptions = (cfg.cidrList || "").split(',').map(x => parseInt(x.trim(), 10)).filter(n => !isNaN(n) && n >= 1 && n <= 32);
+    if (cidrOptions.length === 0) return [];
+
+    const out = [];
+    for (let i = 0; i < cfg.numQuestions; i++) {
+        const cidr = pickRandom(rng, cidrOptions);
+        const maskBits = '1'.repeat(cidr) + '0'.repeat(32 - cidr);
+        const octetsBin = [maskBits.substr(0, 8), maskBits.substr(8, 8), maskBits.substr(16, 8), maskBits.substr(24, 8)];
+        const octetsDec = octetsBin.map(o => parseInt(o, 2));
+        const decStr = octetsDec.join('.');
+        const binStr = octetsBin.join('.');
+        out.push({ type: 'mask_d2b', promptHtml: `Convert the subnet mask <b>${decStr}</b> to binary (8 bits per octet).`, correct: binStr, given: decStr });
+    }
+    return out;
+}
+
+// --- CLASSFUL CIDR IDENTIFICATION (Phase 7) ---
+// Given an IP address, the student identifies its default CIDR prefix
+// based on the traditional IPv4 address class (A/B/C). Class D (224–239,
+// multicast) and Class E (240–255, reserved) don't have a classful default
+// mask, so they're never generated; 127.x.x.x (loopback) is skipped too.
+const CLASSFUL_CIDR_RANGES = [
+    { cls: 'A', min: 1, max: 126, cidr: 8 },   // 127 reserved for loopback
+    { cls: 'B', min: 128, max: 191, cidr: 16 },
+    { cls: 'C', min: 192, max: 223, cidr: 24 }
+];
+
+function randomIPInRange(rng, range) {
+    const firstOctet = randInt(rng, range.min, range.max);
+    const rest = [randInt(rng, 0, 255), randInt(rng, 0, 255), randInt(rng, 0, 255)];
+    return [firstOctet, ...rest].join('.');
+}
+
+function genPhase7Questions(cfg, rng) {
+    if (!cfg || !cfg.enabled || !cfg.numQuestions) return [];
+
+    // Guarantee every class (A, B, C) appears at least once: assign classes
+    // round-robin across the requested slots (so with numQuestions >= 3 each
+    // class is covered, and any extra slots cycle back through A/B/C again),
+    // then shuffle deterministically so the guaranteed A/B/C questions don't
+    // always land in the first three slots or the same relative order.
+    const assignments = [];
+    for (let i = 0; i < cfg.numQuestions; i++) {
+        assignments.push(CLASSFUL_CIDR_RANGES[i % CLASSFUL_CIDR_RANGES.length]);
+    }
+    for (let i = assignments.length - 1; i > 0; i--) {
+        const j = Math.floor(rng() * (i + 1));
+        [assignments[i], assignments[j]] = [assignments[j], assignments[i]];
+    }
+
+    return assignments.map(range => ({
+        type: 'class_cidr',
+        promptHtml: `Identify the CIDR notation based on IP address class.`,
+        correct: String(range.cidr),
+        given: randomIPInRange(rng, range)
+    }));
+}
+
+function questionTypeLabel(type) {
+    switch (type) {
+        case 'd2b': return 'Dec→Bin';
+        case 'b2d': return 'Bin→Dec';
+        case 'ip_d2b': return 'IP Dec→Bin';
+        case 'ip_b2d': return 'IP Bin→Dec';
+        case 'mask_c2d': return 'CIDR→Mask';
+        case 'mask_d2b': return 'Mask→Bin';
+        case 'class_cidr': return 'Class→CIDR';
+        default: return '';
+    }
+}
+
+// Builds the full, ordered list of named question "exercises" for a given
+// seed string. Exam mode seeds with the student's email (unique, stable
+// per student across reloads); practice mode uses one fixed seed so every
+// student practices the same set. Grouped by phase, numbered within each
+// phase, matching the sidebar's one-entry-per-question structure.
+function buildConversionQuestions(seedStr) {
+    const rng = mulberry32(hashStringToSeed(seedStr || ''));
+    const decToBin = genPhase1Questions(QUESTION_CONFIG.phase1, rng);
+    const binToDec = genPhase2Questions(QUESTION_CONFIG.phase2, rng);
+    const ipToBinary = genPhase3Questions(QUESTION_CONFIG.phase3, rng);
+    const ipToDecimal = genPhase4Questions(QUESTION_CONFIG.phase4, rng);
+    const cidrToMask = genPhase5Questions(QUESTION_CONFIG.phase5, rng);
+    const maskToBinary = genPhase6Questions(QUESTION_CONFIG.phase6, rng);
+    const classCidrQuestions = genPhase7Questions(QUESTION_CONFIG.phase7, rng);
+
+    const list = [];
+    decToBin.forEach((q, i) => list.push({
+        name: `dec2bin-q${i + 1}`,
+        phase: 'Phase 1 · Decimal → Binary',
+        label: `Phase 1 – Q${i + 1} (${questionTypeLabel(q.type)})`,
+        shortLabel: `Q${i + 1} · ${questionTypeLabel(q.type)}`,
+        q
+    }));
+    binToDec.forEach((q, i) => list.push({
+        name: `bin2dec-q${i + 1}`,
+        phase: 'Phase 2 · Binary → Decimal',
+        label: `Phase 2 – Q${i + 1} (${questionTypeLabel(q.type)})`,
+        shortLabel: `Q${i + 1} · ${questionTypeLabel(q.type)}`,
+        q
+    }));
+    ipToBinary.forEach((q, i) => list.push({
+        name: `ipdecbin-q${i + 1}`,
+        phase: 'Phase 3 · IP Decimal → Binary',
+        label: `Phase 3 – Q${i + 1} (${questionTypeLabel(q.type)})`,
+        shortLabel: `Q${i + 1} · ${questionTypeLabel(q.type)}`,
+        q
+    }));
+    ipToDecimal.forEach((q, i) => list.push({
+        name: `ipbindec-q${i + 1}`,
+        phase: 'Phase 4 · IP Binary → Decimal',
+        label: `Phase 4 – Q${i + 1} (${questionTypeLabel(q.type)})`,
+        shortLabel: `Q${i + 1} · ${questionTypeLabel(q.type)}`,
+        q
+    }));
+    cidrToMask.forEach((q, i) => list.push({
+        name: `cidrmask-q${i + 1}`,
+        phase: 'Phase 5 · CIDR → Mask',
+        label: `Phase 5 – Q${i + 1} (${questionTypeLabel(q.type)})`,
+        shortLabel: `Q${i + 1} · ${questionTypeLabel(q.type)}`,
+        q
+    }));
+    maskToBinary.forEach((q, i) => list.push({
+        name: `maskbin-q${i + 1}`,
+        phase: 'Phase 6 · Mask → Binary',
+        label: `Phase 6 – Q${i + 1} (${questionTypeLabel(q.type)})`,
+        shortLabel: `Q${i + 1} · ${questionTypeLabel(q.type)}`,
+        q
+    }));
+    classCidrQuestions.forEach((q, i) => list.push({
+        name: `classcidr-q${i + 1}`,
+        phase: 'Phase 7 · Class-Based CIDR',
+        label: `Phase 7 – Q${i + 1} (${questionTypeLabel(q.type)})`,
+        shortLabel: `Q${i + 1} · ${questionTypeLabel(q.type)}`,
+        q
+    }));
+    return list;
+}
+
+async function loadAllExercises() {
+    const list = document.getElementById('fileList');
+    list.innerHTML = ""; 
+    document.getElementById('loader').style.display = 'block';
+
+    // Exam mode hides the per-bit decimal place-value labels (128, 64, 32,
+    // ...) shown above every bit box across Phase 1, Phase 2's read-only
+    // "given" grid, and the Phase 3/6 octet grids — those numbers hand the
+    // student the exact arithmetic needed to solve the question, which
+    // defeats the point of a timed assessment. Driven by a single
+    // body-level class rather than touching each render function, so it
+    // covers every bit grid uniformly (including ones not yet rendered)
+    // via CSS alone (see .bit-place-value in style.css).
+    document.body.classList.toggle('exam-mode', appSettings.mode === 'exam');
+
+    // Exam mode: seed question generation with the student's email, so
+    // the exact same numbers/questions reappear on reload (stable across
+    // resumed exam sessions) while differing from student to student.
+    //
+    // Practice mode's seed depends on appSettings.practiceQuestionMode
+    // (set in the Settings modal, before login):
+    //   - 'fixed'  -> the same constant seed every time, so every student
+    //                 practices the identical set (e.g. for walking
+    //                 through problems together as a class).
+    //   - 'random' -> a freshly generated seed for this login session, so
+    //                 practice sessions vary session-to-session instead of
+    //                 repeating the same questions forever.
+    let seedStr;
+    if (appSettings.mode === 'exam' && currentUser) {
+        seedStr = currentUser;
+    } else if (appSettings.mode === 'practice' && appSettings.practiceQuestionMode === 'random') {
+        if (!currentPracticeSeed) {
+            currentPracticeSeed = generateRandomPracticeSeed();
+        }
+        seedStr = currentPracticeSeed;
+    } else {
+        seedStr = 'practice-default-seed';
+    }
+
+    const questionList = buildConversionQuestions(seedStr);
+
+    let lastPhase = null;
+    for (const item of questionList) {
+        exerciseData[item.name] = buildConversionExerciseData(item);
+
+        // Insert a non-interactive phase header whenever the phase changes
+        // (list is already grouped/ordered by phase from buildConversionQuestions).
+        if (item.phase !== lastPhase) {
+            const headerLi = document.createElement('li');
+            headerLi.className = 'sidebar-phase-header';
+            headerLi.textContent = item.phase;
+            headerLi.setAttribute('role', 'presentation');
+            list.appendChild(headerLi);
+            lastPhase = item.phase;
+        }
+
+        const li = document.createElement('li');
+        const safeId = item.name;
+        li.id = `nav-${safeId}`;
+
+        li.innerHTML = `
+            <span>${item.shortLabel}</span>
+            <span class="nav-score" id="score-${safeId}">0/${exerciseData[item.name].answers.length}</span>
+        `;
+
+        li.onclick = () => {
+            switchExercise(item.name, li);
+            closeSidebarIfMobile();
+        };
+        list.appendChild(li);
+
+        // Initialize sidebar score and summary
+        updateSidebarScore(item.name);
+        updateSummaryPanel();
+    }
+    document.getElementById('loader').style.display = 'none';
+
+    // --- Restore any persisted exam-mode progress for this student ---
+    // Keyed by email, so a page reload/reconnect during an exam resumes
+    // exactly where the student left off (locked exercises, scores, line
+    // order) instead of silently wiping their answers and handing them a
+    // brand-new timer.
+    let resumedSession = null;
+    let isExpired = false;
+    if (appSettings.mode === 'exam' && currentUser) {
+        resumedSession = loadExamSession(currentUser);
+        if (resumedSession) {
+            applySavedExerciseStates(resumedSession);
+            isExpired = !!resumedSession.completed ||
+                (typeof resumedSession.examEndTimestamp === 'number' && Date.now() >= resumedSession.examEndTimestamp);
+            if (isExpired) {
+                // Lock every exercise, including ones never opened, so a
+                // reload after time's up can't be used to keep answering.
+                for (const file in exerciseData) {
+                    exerciseData[file].locked = true;
+                }
+            }
+        }
+    }
+
+    const firstQuestionItem = list.querySelector('li:not(.sidebar-phase-header)');
+    if (firstQuestionItem) firstQuestionItem.click();
+
+    // Attach action button handler (delegates to verify or reset depending on locked state)
+    document.getElementById('actionButton').addEventListener('click', () => {
+        const actionBtn = document.getElementById('actionButton');
+        const ex = exerciseData[currentFile];
+        if (!currentFile) return;
+        if (ex && ex.locked) {
+            resetCurrentExercise();
+        } else {
+            checkAnswers();
+        }
+    });
+
+    return { session: resumedSession, isExpired };
+}
+
+// Applies a previously-saved exam session (locked state, score, and line
+// order per exercise) onto the freshly-loaded exerciseData. Must run after
+// exerciseData has been populated (each exercise re-shuffles on every page
+// load, but userOrder is stored as original line indices, so it re-applies
+// correctly regardless of the new shuffle).
+function applySavedExerciseStates(session) {
+    if (!session || !session.exercises) return;
+    for (const file in session.exercises) {
+        const saved = session.exercises[file];
+        const ex = exerciseData[file];
+        if (!ex || !saved) continue;
+        ex.locked = !!saved.locked;
+        ex.score = saved.score || 0;
+        ex.isPartial = !!saved.isPartial;
+        if (ex.isLineOrdering && Array.isArray(saved.userOrder) && saved.userOrder.length) {
+            ex.userOrder = saved.userOrder;
+        }
+        if (ex.isConversionQuestion && typeof saved.userAnswer === 'string') {
+            ex.userAnswer = saved.userAnswer;
+        }
+        updateSidebarScore(file);
+    }
+    updateSummaryPanel();
+}
+
+// Fisher-Yates shuffle that guarantees a derangement (no item in original position)
+function createDerangement(length) {
+    if (length <= 1) return [...Array(length).keys()];
+    
+    let attempt = 0;
+    let derangement;
+    let isValid;
+    
+    do {
+        // Fisher-Yates shuffle
+        derangement = [...Array(length).keys()];
+        for (let i = length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [derangement[i], derangement[j]] = [derangement[j], derangement[i]];
+        }
+        
+        // Check if it's a valid derangement (no item in original position)
+        isValid = true;
+        for (let i = 0; i < length; i++) {
+            if (derangement[i] === i) {
+                isValid = false;
+                break;
+            }
+        }
+        
+        attempt++;
+    } while (!isValid && attempt < 100); // Max 100 attempts to prevent infinite loop
+    
+    // Fallback: if derangement fails, manually create one
+    if (!isValid) {
+        derangement = [...Array(length).keys()];
+        const rotations = Math.max(1, Math.floor(length / 2));
+        for (let i = 0; i < rotations; i++) {
+            derangement.push(derangement.shift());
+        }
+    }
+    
+    return derangement;
+}
+
+function parseJavaCode(raw) {
+    // Extract sample output from a leading block comment (/* ... */) if present
+    let sampleOutput = '';
+    const commentMatch = raw.match(/\/\*[\s\S]*?\*\//);
+    if (commentMatch) {
+        const comment = commentMatch[0];
+        // Find 'Sample Output:' marker (case-insensitive)
+        const markerIndex = comment.search(/Sample Output:/i);
+        if (markerIndex >= 0) {
+            // Extract everything after the marker up to end of comment
+            let after = comment.slice(markerIndex + 'Sample Output:'.length);
+
+            // Strip the block comment's closing "*/" (and any whitespace
+            // right before it) from the very end BEFORE splitting into
+            // lines. Doing this first means a genuine blank line the
+            // author intentionally included in the sample output (e.g. a
+            // trailing blank row) can't get confused with — and dropped
+            // along with — the leftover artifact the closer would
+            // otherwise leave behind on its own line.
+            after = after.replace(/\s*\*\/\s*$/, '');
+
+            // Strip only the JavaDoc-style comment prefix from each line: an
+            // optional single leading space, the '*', and at most one space
+            // right after it. Anything beyond that single space is real
+            // indentation belonging to the program's actual output (e.g. an
+            // ASCII-art shape) and must be preserved exactly as-is.
+            let sampleLines = after.split('\n').map(l => l.replace(/^ ?\*\s?/, ''));
+
+            // Drop only the leading blank line produced by the newline
+            // right after "Sample Output:" itself. Any blank line(s)
+            // further in — including a trailing one — are part of the
+            // real output and are left untouched.
+            while (sampleLines.length && sampleLines[0].trim() === '') {
+                sampleLines.shift();
+            }
+
+            // Trailing whitespace on a line doesn't affect how it renders,
+            // so it's safe to trim per line without touching leading spaces.
+            sampleOutput = sampleLines.map(l => l.replace(/\s+$/, '')).join('\n');
+        }
+
+        // Remove the entire leading comment block from the raw source before parsing lines
+        raw = raw.replace(commentMatch[0], '');
+    }
+
+    // Split code into lines and filter out empty lines
+    const lines = raw.split('\n').filter(line => line.trim().length > 0);
+    
+    // Escape HTML
+    const escapedLines = lines.map(line => 
+        line.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    );
+    
+    // Create shuffled version using derangement (no item in original position)
+    const shuffledIndices = createDerangement(escapedLines.length);
+    const shuffledLines = shuffledIndices.map(idx => escapedLines[idx]);
+    
+    // Generate fixed line numbers column and draggable code area
+    let lineNumbersHtml = '<div class="line-numbers-column">';
+    for (let i = 0; i < escapedLines.length; i++) {
+        lineNumbersHtml += `<div class="line-number">${i + 1}</div>`;
+    }
+    lineNumbersHtml += '</div>';
+    
+    // Build draggable items (no line numbers attached)
+    let codeAreaHtml = '<div class="code-ordering-area" id="orderingArea">';
+    shuffledLines.forEach((line, idx) => {
+        const originalIdx = shuffledIndices[idx];
+        
+        codeAreaHtml += `<div class="draggable-line" draggable="true" data-original-idx="${originalIdx}">
+                            <span class="drag-handle">⋮⋮</span>
+                            <div class="updown-buttons">
+                                <button type="button" class="move-up-btn" aria-label="Move line up">▲</button>
+                                <button type="button" class="move-down-btn" aria-label="Move line down">▼</button>
+                            </div>
+                            <code>${line}</code>
+                        </div>`;
+    });
+    codeAreaHtml += '</div>';
+    
+    // Wrap both in a container
+    const html = `<div class="code-ordering-container">${lineNumbersHtml}${codeAreaHtml}</div>`;
+    
+    // For compatibility, 'answers' stores the correct order
+    const answers = escapedLines.map((_, idx) => [idx.toString()]);
+    
+    // Identify duplicate lines and map which positions are valid for each line's content
+    const lineGroups = {}; // content -> array of original indices
+    escapedLines.forEach((line, idx) => {
+        if (!lineGroups[line]) {
+            lineGroups[line] = [];
+        }
+        lineGroups[line].push(idx);
+    });
+    
+    // Create a map: originalIdx -> valid positions for that line's content
+    const validPositionsMap = {};
+    escapedLines.forEach((line, idx) => {
+        validPositionsMap[idx] = lineGroups[line].sort((a, b) => a - b);
+    });
+    
+    return { 
+        html, 
+        answers, 
+        sampleOutput,
+        originalLines: escapedLines,
+        originalIndices: [...escapedLines.keys()],
+        shuffledIndices: shuffledIndices,
+        validPositionsMap: validPositionsMap,
+        lineGroups: lineGroups,
+        userOrder: [],
+        score: 0, 
+        locked: false, 
+        isPartial: false,
+        isLineOrdering: true
+    };
+}
+
+/* =========================================================
+   BINARY / IP CONVERSION ACTIVITY — EXERCISE DATA / RENDERING / GRADING
+   Builds an object shaped like the exerciseData entries the rest of the
+   app already expects (locked/score/answers/html), so the sidebar,
+   scoring, exam persistence, and lock/reset flow all work unmodified.
+========================================================= */
+function buildConversionExerciseData(item) {
+    const q = item.q;
+    // IP address questions (Phase 3 · IP Dec→Bin and Phase 4 · IP Bin→Dec)
+    // are graded per octet — 4 "lines" so 1 point per octet, up to 4 points
+    // total — instead of a single all-or-nothing point. Everything else
+    // (mask questions, individual dec/bin questions) stays at 1 point.
+    const isOctetScored = (q.type === 'ip_d2b' || q.type === 'ip_b2d');
+    return {
+        html: renderQuestionHtml(item.name, q),
+        answers: isOctetScored ? [[], [], [], []] : [[q.correct]], // length drives the score denominator everywhere (sidebar, summary, exam completion)
+        correct: q.correct,
+        type: q.type,
+        bitWidth: q.bitWidth,
+        given: q.given,
+        promptHtml: q.promptHtml,
+        label: item.label,
+        shortLabel: item.shortLabel,
+        phase: item.phase,
+        sampleOutput: '',
+        userAnswer: '',
+        score: 0,
+        locked: false,
+        isPartial: false,
+        isConversionQuestion: true,
+        isLineOrdering: false
+    };
+}
+
+function renderBitGroup(qid, width) {
+    // Mirrors the Phase 3/6 octet bit-grid's presentation, adapted for the
+    // fact Phase 1 has no compact/expanded distinction — there's no
+    // separate collapsed field this grid swaps out of, it's just always
+    // shown this way. Same two ideas carried over:
+    //   1. One continuous row, no mid-row separator — a visible gap implied
+    //      two disconnected groups (see renderExpandableOctetBitboxes'
+    //      comment); this is one binary value regardless of width.
+    //   2. Each box gets its own decimal place-value label above it
+    //      (2^(width-1-i) for a value of this width), muted by default and
+    //      lighting up whenever that bit is set to 1, via
+    //      updatePlainBitPlaceValueLabel — making the
+    //      decimal-equals-sum-of-active-place-values relationship visible
+    //      as the student types.
+    let html = `<div class="bitgroup" data-qid="${qid}">`;
+    for (let i = 0; i < width; i++) {
+        const placeValue = Math.pow(2, width - 1 - i);
+        html += `<div class="octet-bit-col">` +
+                    `<span class="bit-place-value muted" data-qid="${qid}" data-idx="${i}">${placeValue}</span>` +
+                    `<input class="bitbox" maxlength="1" inputmode="numeric" data-idx="${i}" data-qid="${qid}">` +
+                `</div>`;
+    }
+    html += `</div>`;
+    return html;
+}
+
+// Phase 2 (Binary -> Decimal): renders the question's "given" binary value
+// using the exact same bitgroup/bitbox/place-value markup as Phase 1's
+// renderBitGroup above, so a student who's built up familiarity with that
+// per-bit, place-value-labeled layout in Phase 1 sees the same visual
+// language here rather than a plain inline string. The key difference is
+// this grid is entirely pre-filled and non-interactive: it's presenting a
+// known, given value, not collecting an answer (the decimal answer is
+// still gathered separately via the normal .answer-input-num field), so
+// each box is `readonly` + `tabindex="-1"` (keeps it out of the tab order
+// entirely, since there's nothing to type into it) and — because the bit
+// values are fixed at render time rather than changing as someone types —
+// the on/off box state and active/muted place-value label are computed
+// once right here instead of via the input-event handlers Phase 1 uses.
+function renderReadOnlyBitGroup(qid, binStr, width) {
+    const bits = (binStr || '').padStart(width, '0');
+    let html = `<div class="bitgroup bitgroup-readonly" data-qid="${qid}">`;
+    for (let i = 0; i < width; i++) {
+        const placeValue = Math.pow(2, width - 1 - i);
+        const bit = bits[i];
+        const boxStateClass = bit === '1' ? 'on' : 'off';
+        const labelStateClass = bit === '1' ? 'active' : 'muted';
+        html += `<div class="octet-bit-col">` +
+                    `<span class="bit-place-value ${labelStateClass}">${placeValue}</span>` +
+                    `<input class="bitbox readonly-bitbox ${boxStateClass}" value="${bit}" readonly tabindex="-1" aria-label="Bit ${i + 1} of ${width}: ${bit}">` +
+                `</div>`;
+    }
+    html += `</div>`;
+    return html;
+}
+
+function renderIpOctetInputs(qid, kind) {
+    const cls = kind === 'bin' ? 'ip-octet-bin' : 'ip-octet-dec';
+    const maxlen = kind === 'bin' ? 8 : 3;
+    const placeholder = kind === 'bin' ? '00000000' : '0';
+    let html = '';
+    for (let i = 0; i < 4; i++) {
+        html += `<input type="text" class="${cls}" maxlength="${maxlen}" inputmode="numeric" data-qid="${qid}" data-oct="${i}" placeholder="${placeholder}">`;
+        if (i < 3) html += `<span class="octet-dot">.</span>`;
+    }
+    return html;
+}
+
+// Single accent color for the expanded bit-grid "card" (Phase 3 & Phase 6,
+// the two IP/mask octet Dec→Bin question types) — the
+// same style for every octet, so the four cards read as one consistent
+// component rather than four differently-colored ones. Deliberately NOT
+// var(--primary) (already the app's button/branding color, so reusing it
+// here reads as a call-to-action rather than a grouping) and NOT
+// var(--secondary)/var(--error) (those are reserved for correct/wrong
+// grading feedback elsewhere in this same UI, via applyOctetFeedback —
+// reusing either here would make an unanswered octet look pre-graded).
+const OCTET_CARD_ACCENT = '#5C6BC0';
+
+function hexToRgba(hex, alpha) {
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+// Standard 8-bit place values, most-significant bit first — matches the
+// left-to-right order the bit boxes are already rendered in.
+const OCTET_BIT_PLACE_VALUES = [128, 64, 32, 16, 8, 4, 2, 1];
+
+// Shared by Phase 3 (IP Dec→Bin) and Phase 6 (Mask Dec→Bin) — both ask for
+// four 8-bit binary octets, so both use this same expand-on-focus UI. Each
+// octet starts as the same compact text field as before (kept as class
+// "ip-octet-bin" so collect/restore/grade/disable logic elsewhere needs no
+// changes), but on focus it swaps out for an 8-box bit grid. The row of
+// boxes reuses Phase 1's exact "bitgroup"/"bitbox" markup and classes so it
+// inherits Phase 1's per-bit entry feel, but — unlike Phase 1, where
+// there's only ever one such row on screen — it's wrapped in its own
+// bordered "card" with an "Octet N" label beneath, so it's visually
+// unambiguous which octet those 8 boxes belong to. Collapses back to the
+// compact field once focus leaves that octet.
+//
+// Each box also gets its own decimal place-value label (128, 64, ... 1)
+// sitting directly above it, muted by default and switching to "active"
+// styling whenever that bit is set to 1 (see updateBitPlaceValueLabel) —
+// making the decimal-equals-sum-of-active-place-values relationship
+// visible as the student types, instead of something computed separately
+// after the fact.
+function renderExpandableOctetBitboxes(qid, oct) {
+    // Like Phase 1's own renderBitGroup, this grid is one continuous row
+    // with no mid-row separator — a visible gap there would imply two
+    // disconnected 4-bit groups rather than one 8-bit octet, so none is
+    // inserted; all 8 boxes sit in a single unbroken row.
+    let boxesHtml = '';
+    for (let b = 0; b < 8; b++) {
+        boxesHtml += `<div class="octet-bit-col">` +
+                `<span class="bit-place-value muted" data-qid="${qid}" data-oct="${oct}" data-idx="${b}">${OCTET_BIT_PLACE_VALUES[b]}</span>` +
+                `<input class="bitbox octet-bitbox" maxlength="1" inputmode="numeric" data-qid="${qid}" data-oct="${oct}" data-idx="${b}">` +
+            `</div>`;
+    }
+
+    const containerStyle = 'display:inline-flex;flex-direction:column;align-items:center;gap:6px;' +
+        `padding:8px 10px 6px;border:1.5px solid ${OCTET_CARD_ACCENT};border-radius:10px;` +
+        `background:${hexToRgba(OCTET_CARD_ACCENT, 0.07)};vertical-align:middle;`;
+    const labelStyle = 'font-size:0.7rem;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;' +
+        `color:${OCTET_CARD_ACCENT};`;
+
+    return `<div class="octet-bitgroup" data-qid="${qid}" data-oct="${oct}" style="${containerStyle}">` +
+                `<div class="bitgroup octet-bitgroup-row" data-qid="${qid}" data-oct="${oct}">${boxesHtml}</div>` +
+                `<span class="octet-label" style="${labelStyle}">Octet ${oct + 1}</span>` +
+            `</div>`;
+}
+
+
+function renderIpOctetBinExpandable(qid) {
+    let html = '';
+    for (let i = 0; i < 4; i++) {
+        html += `<span class="octet-expand-wrapper" data-qid="${qid}" data-oct="${i}">` +
+            `<input type="text" class="ip-octet-bin ip-octet-collapsed" maxlength="8" inputmode="numeric" data-qid="${qid}" data-oct="${i}" placeholder="00000000">` +
+            renderExpandableOctetBitboxes(qid, i) +
+            `</span>`;
+        if (i < 3) html += `<span class="octet-dot">.</span>`;
+    }
+    return html;
+}
+
+// Renders "192.168.1.0 / ___" — the IP address followed by a slash and an
+// underline-style blank for the CIDR prefix number (no boxed border, just
+// a line to write on). Reuses the "answer-input-num" class so the existing
+// collect/restore/enable-disable wiring (shared with the b2d question
+// type) picks it up with no extra plumbing; inline styles override that
+// class's default boxed look for this specific input.
+function renderClassCidrInput(qid, ip) {
+    const lineStyle = 'border:none;border-bottom:2px solid currentColor;background:transparent;' +
+        'width:2.5ch;text-align:center;padding:0 2px;box-shadow:none;border-radius:0;';
+    return `<span class="cidr-ip-text">${ip}</span><span class="cidr-slash">/</span><input type="text" class="answer-input-num cidr-answer-input" data-qid="${qid}" maxlength="2" inputmode="numeric" style="${lineStyle}">`;
+}
+
+function renderQuestionHtml(qid, q) {
+    let inputHtml = '';
+    let answerRowClass = 'conversion-answer-row';
+    if (q.type === 'd2b') {
+        inputHtml = renderBitGroup(qid, q.bitWidth);
+    } else if (q.type === 'b2d') {
+        const givenGroup = renderReadOnlyBitGroup(qid, q.given, q.bitWidth);
+        inputHtml = `<div class="b2d-given-wrap">
+                        <span class="b2d-given-label">Given</span>
+                        ${givenGroup}
+                     </div>
+                     <span class="conversion-equals" aria-hidden="true">=</span>
+                     <input type="text" class="answer-input-num" data-qid="${qid}" inputmode="numeric" placeholder="decimal">`;
+        // The "Given" label sits above the bit grid, making that column
+        // taller than the bare "=" and decimal input beside it. Row-level
+        // `align-items: center` would center against that extra height and
+        // visibly sink the equals sign/input below the bit boxes — this
+        // modifier switches just this row to bottom alignment instead, so
+        // the bit-box row and the decimal field line up on the same
+        // baseline regardless of the label above.
+        answerRowClass += ' answer-row-bottom-align';
+    } else if (q.type === 'ip_d2b' || q.type === 'mask_d2b') {
+        // Phase 3 (IP Dec→Bin) and Phase 6 (Mask Dec→Bin) are structurally
+        // identical input-wise — both ask for four 8-bit binary octets —
+        // so they share the same expand-on-focus bit-grid UI. Grading stays
+        // untouched: buildConversionExerciseData still only awards partial,
+        // per-octet credit for 'ip_d2b' (see isOctetScored there); this is
+        // purely about how the value gets typed in, not how it's scored.
+        inputHtml = renderIpOctetBinExpandable(qid);
+    } else if (q.type === 'ip_b2d' || q.type === 'mask_c2d') {
+        inputHtml = renderIpOctetInputs(qid, 'dec');
+    } else if (q.type === 'class_cidr') {
+        inputHtml = renderClassCidrInput(qid, q.given);
+    }
+    return `<div class="conversion-question">
+                <div class="conversion-prompt">${q.promptHtml}</div>
+                <div class="${answerRowClass}">${inputHtml}</div>
+            </div>`;
+}
+
+// Reads whatever is currently typed into the DOM for the active question.
+// Only one question's inputs exist in #codeDisplay at a time, so no qid
+// scoping is needed on the selectors.
+function collectConversionAnswer(ex) {
+    if (!ex) return '';
+    if (ex.type === 'd2b') {
+        return Array.from(document.querySelectorAll('.bitbox')).map(b => b.value || '_').join('');
+    }
+    if (ex.type === 'b2d' || ex.type === 'class_cidr') {
+        const inp = document.querySelector('.answer-input-num');
+        return inp ? inp.value.trim() : '';
+    }
+    if (ex.type === 'ip_d2b' || ex.type === 'mask_d2b') {
+        const parts = [0, 1, 2, 3].map(i => {
+            const el = document.querySelector(`.ip-octet-bin[data-oct="${i}"]`);
+            return el ? el.value.trim() : '';
+        });
+        return parts.join('.');
+    }
+    if (ex.type === 'ip_b2d' || ex.type === 'mask_c2d') {
+        const parts = [0, 1, 2, 3].map(i => {
+            const el = document.querySelector(`.ip-octet-dec[data-oct="${i}"]`);
+            return el ? el.value.trim() : '';
+        });
+        return parts.join('.');
+    }
+    return '';
+}
+
+function gradeConversionAnswer(ex, userAnswer) {
+    if (!ex) return false;
+    // Exact match required for binary answers (leading zeros matter).
+    return (userAnswer || '').trim() === (ex.correct || '').trim();
+}
+
+// Returns { score, allCorrect } for the current question. IP address
+// questions (Phase 3/4) are graded per octet — 1 point for each of the 4
+// octets that matches — so partial credit is possible. Every other
+// conversion type (individual dec/bin, subnet mask) is still all-or-nothing
+// (1 point), matching ex.answers.length set in buildConversionExerciseData.
+function gradeConversionScore(ex, userAnswer) {
+    if (!ex) return { score: 0, allCorrect: false };
+    if (ex.type === 'ip_d2b' || ex.type === 'ip_b2d') {
+        const correctParts = (ex.correct || '').split('.');
+        const userParts = (userAnswer || '').split('.');
+        let score = 0;
+        for (let i = 0; i < correctParts.length; i++) {
+            if ((userParts[i] || '').trim() === correctParts[i].trim()) score++;
+        }
+        return { score, allCorrect: score === correctParts.length };
+    }
+    const isCorrect = gradeConversionAnswer(ex, userAnswer);
+    return { score: isCorrect ? 1 : 0, allCorrect: isCorrect };
+}
+
+// Applies per-octet correct/incorrect visual feedback for the IP address
+// conversion questions (Phase 3 · IP Dec→Bin and Phase 4 · IP Bin→Dec),
+// where each of the 4 octets is scored independently. Mirrors the
+// border-color convention already used for the legacy fill-in-the-blank
+// inputs elsewhere in this file, so it stays visually consistent without
+// needing new CSS. Called right after grading (checkAnswers) and when
+// redisplaying an already-locked question (switchExercise), so the
+// coloring survives navigating away and back.
+function applyOctetFeedback(ex) {
+    if (!ex || (ex.type !== 'ip_d2b' && ex.type !== 'ip_b2d')) return;
+
+    const selectorClass = ex.type === 'ip_d2b' ? '.ip-octet-bin' : '.ip-octet-dec';
+    const correctParts = (ex.correct || '').split('.');
+
+    document.querySelectorAll(selectorClass).forEach(el => {
+        const idx = parseInt(el.dataset.oct, 10);
+        const userVal = (el.value || '').trim();
+        const isRight = userVal === (correctParts[idx] || '').trim();
+
+        el.classList.remove('octet-correct', 'octet-incorrect');
+        el.classList.add(isRight ? 'octet-correct' : 'octet-incorrect');
+        el.style.borderColor = isRight ? 'var(--secondary)' : 'var(--error)';
+        el.style.borderBottomColor = isRight ? 'var(--secondary)' : 'var(--error)';
+        el.setAttribute('aria-invalid', isRight ? 'false' : 'true');
+        el.title = isRight ? 'Correct' : 'Incorrect';
+    });
+}
+
+// Clears any per-octet correct/incorrect styling/attributes applied by
+// applyOctetFeedback, used on reset so a fresh attempt doesn't start out
+// still colored from the previous one.
+function clearOctetFeedback() {
+    document.querySelectorAll('.ip-octet-bin, .ip-octet-dec').forEach(el => {
+        el.classList.remove('octet-correct', 'octet-incorrect');
+        el.style.borderColor = '';
+        el.style.borderBottomColor = '';
+        el.removeAttribute('aria-invalid');
+        el.removeAttribute('title');
+    });
+}
+
+// Repopulates the current question's inputs from a previously saved
+// ex.userAnswer (e.g. after switching away and back, or resuming an
+// exam session mid-question).
+function restoreConversionAnswer(ex) {
+    if (!ex || !ex.userAnswer) return;
+    if (ex.type === 'd2b') {
+        const chars = ex.userAnswer.split('');
+        document.querySelectorAll('.bitbox').forEach((box, i) => {
+            const c = chars[i];
+            box.classList.remove('on', 'off');
+            if (c === '0' || c === '1') {
+                box.value = c;
+                box.classList.add(c === '1' ? 'on' : 'off');
+            }
+            updatePlainBitPlaceValueLabel(box.dataset.qid, i, box.value);
+        });
+    } else if (ex.type === 'b2d' || ex.type === 'class_cidr') {
+        const inp = document.querySelector('.answer-input-num');
+        if (inp) inp.value = ex.userAnswer;
+    } else if (ex.type === 'ip_d2b' || ex.type === 'mask_d2b') {
+        const parts = ex.userAnswer.split('.');
+        document.querySelectorAll('.ip-octet-bin').forEach(el => {
+            const idx = parseInt(el.dataset.oct, 10);
+            el.value = parts[idx] || '';
+        });
+    } else if (ex.type === 'ip_b2d' || ex.type === 'mask_c2d') {
+        const parts = ex.userAnswer.split('.');
+        document.querySelectorAll('.ip-octet-dec').forEach(el => {
+            const idx = parseInt(el.dataset.oct, 10);
+            el.value = parts[idx] || '';
+        });
+    }
+}
+
+// Persists the in-progress answer for the current question (debounced by
+// the caller via the input event) and, in exam mode, saves the session so
+// a reload mid-question doesn't lose it.
+function saveConversionProgress() {
+    const ex = exerciseData[currentFile];
+    if (!ex || !ex.isConversionQuestion || ex.locked) return;
+    ex.userAnswer = collectConversionAnswer(ex);
+    if (appSettings.mode === 'exam') saveExamSession();
+}
+
+// --- PHASE 3 & PHASE 6: EXPAND-ON-FOCUS OCTET BINARY INPUT ---
+// The bit-grid "card" is a floating popover (see .octet-bitgroup in
+// style.css) anchored under its compact field. It uses position: fixed
+// with JS-computed coordinates rather than position: absolute relative to
+// its wrapper — .code-editor sets overflow-x: auto without an explicit
+// overflow-y, which per spec silently forces overflow-y to 'auto' too,
+// turning it into a clipping/scrolling container that cut an
+// absolutely-positioned popover off before it could render below its
+// field. Fixed positioning escapes any such ancestor clipping entirely.
+//
+// Showing/hiding is just a class toggle — the opacity/transform/
+// visibility crossfade is entirely owned by CSS transitions on
+// .octet-bitgroup / .octet-bitgroup.expanded and .ip-octet-collapsed /
+// .ip-octet-collapsed.field-hidden, so both halves of the swap animate
+// together as one continuous motion instead of two separately-timed
+// animations that could drift out of sync.
+
+// Computes and applies the popover's viewport position from its field's
+// current on-screen location, clamping horizontally so it can't run off
+// the right edge of the screen on narrow viewports. Safe to call while
+// the card is still invisible (visibility: hidden doesn't remove it from
+// layout, only display: none would), so its real measured size is
+// available for the clamp check even before it's shown.
+function positionOctetCard(collapsedInput, bitgroup) {
+    const fieldRect = collapsedInput.getBoundingClientRect();
+    const cardRect = bitgroup.getBoundingClientRect();
+    const margin = 8;
+
+    let left = fieldRect.left;
+    const maxLeft = window.innerWidth - cardRect.width - margin;
+    if (left > maxLeft) left = Math.max(margin, maxLeft);
+
+    bitgroup.style.left = `${Math.round(left)}px`;
+    bitgroup.style.top = `${Math.round(fieldRect.bottom + 10)}px`;
+}
+
+// Keeps any currently-expanded octet card(s) glued to their field while
+// the page (or any scrollable ancestor, e.g. the sidebar or a mobile
+// keyboard-triggered scroll) moves underneath them — fixed-position
+// elements don't follow scrolling on their own, so without this the
+// popover would visually detach from its field the moment the page
+// scrolled while it was open.
+function repositionExpandedOctetCards() {
+    document.querySelectorAll('.octet-bitgroup.expanded').forEach(bitgroup => {
+        const collapsedInput = document.querySelector(
+            `.ip-octet-collapsed[data-qid="${bitgroup.dataset.qid}"][data-oct="${bitgroup.dataset.oct}"]`
+        );
+        if (collapsedInput) positionOctetCard(collapsedInput, bitgroup);
+    });
+}
+window.addEventListener('scroll', repositionExpandedOctetCards, { passive: true, capture: true });
+window.addEventListener('resize', repositionExpandedOctetCards);
+
+function showOctetCard(bitgroup) {
+    bitgroup.classList.add('expanded');
+}
+
+function hideOctetCard(bitgroup) {
+    bitgroup.classList.remove('expanded');
+}
+
+// tabIndex (not visibility) is what keeps a hidden compact field out of
+// Tab-key reach — see the comment on expandOctetBinaryInput for why
+// visibility can't be used here.
+function hideCollapsedField(input) {
+    input.classList.add('field-hidden');
+    input.tabIndex = -1;
+    input.title = 'Editing in the expanded view below';
+    // NOT input.disabled — disabling a currently-focused element forces an
+    // immediate blur (same reason visibility:hidden was ruled out for this
+    // field, see the CSS comment on .ip-octet-collapsed.field-hidden), which
+    // would fire ahead of the deferred focus handoff into the bit grid and
+    // break it. readOnly has no such side effect: it still blocks the
+    // student from typing/editing this field while it's muted, but doesn't
+    // touch focus at all.
+    input.readOnly = true;
+}
+
+function showCollapsedField(input) {
+    input.classList.remove('field-hidden');
+    input.removeAttribute('tabindex');
+    input.removeAttribute('title');
+    input.readOnly = false;
+}
+
+// Reconstructs the 8-bit string for one octet from its bit boxes (using
+// '_' for any box left blank, same convention as Phase 1's own collector)
+// and writes it into that octet's collapsed text field — the field
+// collectConversionAnswer/applyOctetFeedback/restoreConversionAnswer
+// already know how to read, so no changes were needed there.
+function updateCollapsedOctetValue(qid, oct) {
+    const boxes = Array.from(document.querySelectorAll(`.octet-bitbox[data-qid="${qid}"][data-oct="${oct}"]`))
+        .sort((a, b) => parseInt(a.dataset.idx, 10) - parseInt(b.dataset.idx, 10));
+    if (!boxes.length) return;
+    const val = boxes.map(b => b.value || '_').join('');
+    const collapsedInput = document.querySelector(`.ip-octet-collapsed[data-qid="${qid}"][data-oct="${oct}"]`);
+    if (collapsedInput) collapsedInput.value = val;
+}
+
+// Shared core: flips a place-value label between "active" (bit is 1 — this
+// place value counts toward the total) and "muted" (bit is 0 or not yet
+// answered). Used by both the octet grid (Phase 3/6) and the plain grid
+// (Phase 1) — they differ only in how the label element is looked up.
+function setPlaceValueLabelState(label, value) {
+    if (!label) return;
+    label.classList.toggle('active', value === '1');
+    label.classList.toggle('muted', value !== '1');
+}
+
+// Phase 3/6: each rendered exercise has four octets' worth of bit boxes in
+// the DOM at once (idx 0–7 repeats per octet), so the lookup needs both
+// data-oct and data-idx to find the right label.
+function updateBitPlaceValueLabel(qid, oct, idx, value) {
+    const label = document.querySelector(`.bit-place-value[data-qid="${qid}"][data-oct="${oct}"][data-idx="${idx}"]`);
+    setPlaceValueLabelState(label, value);
+}
+
+// Phase 1: only one bit grid is ever rendered per exercise, so data-qid +
+// data-idx alone is already unique — no octet to scope by.
+function updatePlainBitPlaceValueLabel(qid, idx, value) {
+    const label = document.querySelector(`.bit-place-value[data-qid="${qid}"][data-idx="${idx}"]`);
+    setPlaceValueLabelState(label, value);
+}
+
+// --- PHASE 3 & PHASE 6: WHICH OCTET IS CURRENTLY EXPANDED ---
+// Single source of truth for "which octet's popover is open right now",
+// driven entirely by the delegated focusin/focusout listeners set up in
+// attachExpandableOctetHandlers (below) rather than by each individual
+// element deciding for itself. See the comment on expandOctetBinaryInput
+// for why the old per-element approach was unreliable.
+let currentlyExpandedOctet = null; // { qid, oct } | null
+
+// Guards handleOctetFocusOutFallback from collapsing the octet card while
+// we're in the middle of our own programmatic focus handoff (compact field
+// -> first bit box). Without this, a focusout fired as a side effect of
+// hiding/disabling the compact field (e.g. the tabIndex change inside
+// hideCollapsedField, called from expandOctetBinaryInput) can race ahead of
+// the setTimeout that actually moves focus into the bit grid, making the
+// card flash open and immediately collapse again. It's set true the moment
+// we decide to expand, and cleared once focus has genuinely landed inside
+// the octet (or the handoff attempt has finished, successfully or not).
+let suppressOctetCollapseUntilExpanded = false;
+
+// Seeds the bit boxes for [qid, oct] from its compact field's current
+// value and shows the popover card. Deliberately does NOT move focus
+// itself — see attachExpandableOctetHandlers for why that's handled
+// separately, in a fresh task. Returns the sorted box elements so the
+// caller can decide what (if anything) to focus.
+function expandOctetBinaryInput(qid, oct) {
+    const wrapper = document.querySelector(`.octet-expand-wrapper[data-qid="${qid}"][data-oct="${oct}"]`);
+    if (!wrapper) return null;
+    const collapsedInput = wrapper.querySelector('.ip-octet-collapsed');
+    const bitgroup = wrapper.querySelector('.octet-bitgroup');
+    if (!collapsedInput || !bitgroup || collapsedInput.disabled) return null;
+
+    const chars = (collapsedInput.value || '').split('');
+    const boxes = Array.from(bitgroup.querySelectorAll('.octet-bitbox'))
+        .sort((a, b) => parseInt(a.dataset.idx, 10) - parseInt(b.dataset.idx, 10));
+    boxes.forEach((box, i) => {
+        const c = chars[i];
+        box.classList.remove('on', 'off');
+        if (c === '0' || c === '1') {
+            box.value = c;
+            box.classList.add(c === '1' ? 'on' : 'off');
+        } else {
+            box.value = '';
+        }
+        updateBitPlaceValueLabel(qid, oct, i, box.value);
+    });
+
+    positionOctetCard(collapsedInput, bitgroup);
+    showOctetCard(bitgroup);
+
+    // Force a synchronous style/layout flush right here, immediately after
+    // the 'expanded' class is added. Reading a layout property forces the
+    // browser to resolve the just-added class into real computed style
+    // (visibility, in particular) right now rather than lazily on whatever
+    // later render pass happens to come next. Without this, a focus() call
+    // shortly afterward could land while the card's focusability is still
+    // effectively unresolved, and silently no-op.
+    void bitgroup.offsetHeight;
+
+    hideCollapsedField(collapsedInput);
+    currentlyExpandedOctet = { qid, oct };
+
+    return boxes;
+}
+
+// Swaps a Phase 3 octet's bit grid back to its compact text field,
+// syncing whatever was typed into the boxes back into that field first.
+function collapseOctetBinaryInput(qid, oct) {
+    const wrapper = document.querySelector(`.octet-expand-wrapper[data-qid="${qid}"][data-oct="${oct}"]`);
+    if (!wrapper) return;
+    const collapsedInput = wrapper.querySelector('.ip-octet-collapsed');
+    const bitgroup = wrapper.querySelector('.octet-bitgroup');
+    if (!collapsedInput || !bitgroup) return;
+
+    updateCollapsedOctetValue(qid, oct);
+    hideOctetCard(bitgroup);
+    showCollapsedField(collapsedInput);
+    if (currentlyExpandedOctet && currentlyExpandedOctet.qid === qid && currentlyExpandedOctet.oct === oct) {
+        currentlyExpandedOctet = null;
+    }
+}
+
+// Attached once, globally (see the guard in attachExpandableOctetHandlers)
+// rather than per-wrapper. This is the actual fix for "expands, then
+// immediately collapses again": the previous version decided whether to
+// expand/collapse from each field's own 'focus' handler, and — critically
+// — called `someBox.focus()` synchronously FROM WITHIN that handler to
+// hand focus off to the bit grid. Calling .focus() on a different element
+// from inside another element's own focus event handler is a well-known
+// cross-browser inconsistency: some browsers defer that re-focus to a
+// later tick instead of applying it immediately. When that happened here,
+// the code went on to hide the compact field before focus had actually,
+// reliably landed in the bit grid, so the "did focus leave?" check fired
+// against a field that — from the browser's perspective — hadn't
+// finished losing focus yet, and collapsed the card right back.
+//
+// This version instead treats focusin as the single, authoritative signal
+// for "focus is now here" (fired only once focus has actually landed,
+// regardless of any deferral), and — when it needs to move focus into the
+// bit grid itself — defers that .focus() call to a double
+// requestAnimationFrame rather than setTimeout(0). Both approaches equally
+// avoid the nested/reentrant-focus problem described above (they run as a
+// fresh, top-level task outside any browser focus-dispatch call stack), but
+// setTimeout(0) makes no promise that a style/layout pass has happened by
+// the time it fires — only that ~0ms of real time has elapsed — so it can
+// land while the just-expanded card's focusability is still unresolved and
+// the focus() call silently no-ops. Two nested rAFs (the same pattern this
+// file already uses in animateRowSwap for a similar "wait for the browser
+// to actually render this" need) guarantee at least one full render pass
+// has completed first. A one-shot retry immediately after covers the rare
+// case where focus still didn't land on the first attempt.
+function handleOctetFocusIn(e) {
+    const wrapper = e.target.closest('.octet-expand-wrapper');
+
+    if (!wrapper) {
+        // Focus landed somewhere unrelated to any octet — collapse
+        // whatever was open.
+        if (currentlyExpandedOctet) {
+            collapseOctetBinaryInput(currentlyExpandedOctet.qid, currentlyExpandedOctet.oct);
+        }
+        return;
+    }
+
+    const qid = wrapper.dataset.qid;
+    const oct = wrapper.dataset.oct;
+    const isSameOctet = currentlyExpandedOctet && currentlyExpandedOctet.qid === qid && currentlyExpandedOctet.oct === oct;
+
+    // Focus has genuinely landed inside an octet's own markup (whether
+    // it's the one already expanded or a new one we're about to expand),
+    // so any handoff that was in flight has resolved — safe to stop
+    // suppressing the fallback below.
+    suppressOctetCollapseUntilExpanded = false;
+
+    if (isSameOctet) {
+        // Focus moved within the same already-expanded octet. The one case
+        // that still needs handling here: focus landing back on the
+        // octet's own compact field, which is muted + read-only while
+        // expanded and was never meant to hold focus at all (a stray
+        // .focus() call, browser autofill, or assistive-tech navigation
+        // can still land it there even with tabIndex -1 and
+        // pointer-events: none). Bounce it straight to the first bit box
+        // instead of leaving focus stranded in a field the student can no
+        // longer edit but could still select text in.
+        if (e.target.classList.contains('ip-octet-collapsed')) {
+            const firstBit = document.querySelector(
+                `.octet-bitbox[data-qid="${qid}"][data-oct="${oct}"][data-idx="0"]`
+            );
+            if (firstBit) firstBit.focus();
+        }
+        return;
+    }
+
+    if (currentlyExpandedOctet) {
+        collapseOctetBinaryInput(currentlyExpandedOctet.qid, currentlyExpandedOctet.oct);
+    }
+
+    // Set BEFORE expandOctetBinaryInput runs: that call mutates the still-
+    // focused compact field (hideCollapsedField flips its tabIndex/opacity),
+    // which can itself synchronously trigger a focusout in some browsers —
+    // ahead of the deferred rAF callback below that actually moves focus
+    // into the bit grid. Flagging the handoff as "in progress" first means
+    // that incidental focusout gets ignored instead of collapsing the card
+    // we just opened.
+    suppressOctetCollapseUntilExpanded = true;
+
+    const boxes = expandOctetBinaryInput(qid, oct);
+    if (!boxes) {
+        suppressOctetCollapseUntilExpanded = false;
+        return;
+    }
+
+    // If focus landed on the compact field itself (a fresh click/tab into
+    // this octet, as opposed to a programmatic .focus() aimed straight at
+    // a box — e.g. the last-bit auto-advance below), hand focus to the
+    // first bit box. Deferred (via rAF) to its own task so it's never
+    // nested inside this focusin dispatch.
+    if (e.target.classList.contains('ip-octet-collapsed')) {
+        const firstBit = boxes[0];
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+                if (!firstBit) {
+                    suppressOctetCollapseUntilExpanded = false;
+                    return;
+                }
+                firstBit.focus();
+                if (document.activeElement === firstBit) {
+                    suppressOctetCollapseUntilExpanded = false;
+                    return;
+                }
+                // Rare fallback: if focus still didn't land (e.g. an even
+                // slower style/layout resolution on some browser/device),
+                // give it one more attempt a frame later rather than
+                // silently leaving focus stranded. Suppression stays on
+                // through this retry too, so a stray focusout in between
+                // can't collapse the card before the retry gets its chance.
+                requestAnimationFrame(() => {
+                    firstBit.focus();
+                    suppressOctetCollapseUntilExpanded = false;
+                });
+            });
+        });
+    } else {
+        suppressOctetCollapseUntilExpanded = false;
+    }
+}
+
+// Fallback for the case focusin can't resolve on its own: focus leaving
+// to nowhere at all (e.g. clicking non-interactive blank space, or the
+// last octet's last box releasing focus with nothing next to take it) —
+// this fires a focusout with no corresponding focusin anywhere.
+function handleOctetFocusOutFallback(e) {
+    // We're mid-handoff (compact field -> first bit box, or one octet
+    // collapsing while another expands) — this focusout is incidental to
+    // our own choreography, not a real "the user moved focus away" event.
+    // Ignore it; handleOctetFocusIn will clear this flag once focus
+    // actually lands, or the pending setTimeout will clear it either way.
+    if (suppressOctetCollapseUntilExpanded) return;
+
+    // When the browser tells us exactly where focus is going, resolve it
+    // synchronously instead of guessing after a timeout.
+    const next = e && e.relatedTarget;
+    if (next) {
+        const nextWrapper = next.closest && next.closest('.octet-expand-wrapper');
+        if (currentlyExpandedOctet && nextWrapper &&
+            nextWrapper.dataset.qid === currentlyExpandedOctet.qid &&
+            nextWrapper.dataset.oct === currentlyExpandedOctet.oct) {
+            return; // staying within the same expanded octet — nothing to do
+        }
+    }
+
+    setTimeout(() => {
+        // Re-check: a handoff may have started (and been flagged) after
+        // this timeout was scheduled but before it ran.
+        if (suppressOctetCollapseUntilExpanded) return;
+        if (!currentlyExpandedOctet) return;
+        const wrapper = document.querySelector(
+            `.octet-expand-wrapper[data-qid="${currentlyExpandedOctet.qid}"][data-oct="${currentlyExpandedOctet.oct}"]`
+        );
+        if (wrapper && !wrapper.contains(document.activeElement)) {
+            collapseOctetBinaryInput(currentlyExpandedOctet.qid, currentlyExpandedOctet.oct);
+            saveConversionProgress();
+        }
+    }, 0);
+}
+
+let octetFocusTrackingAttached = false;
+
+// Wires up Phase 3's expand-on-focus behavior: focusing a collapsed octet
+// field expands it into Phase 1-style bit boxes; typing a bit auto-advances
+// within the octet (mirroring Phase 1); filling the 8th bit auto-collapses
+// and advances to the next octet; and focus leaving the octet entirely
+// (tab, click elsewhere) also collapses it back to the compact field.
+function attachExpandableOctetHandlers() {
+    document.querySelectorAll('.ip-octet-collapsed').forEach(inp => {
+        inp.addEventListener('input', () => saveConversionProgress());
+        // Note: no direct 'focus' listener here that calls
+        // expandOctetBinaryInput — that's handled centrally by the
+        // delegated focusin listener attached once below. See the big
+        // comment on handleOctetFocusIn for why.
+    });
+
+    // The delegated focusin/focusout listeners aren't tied to any
+    // particular exercise's DOM (they look elements up by data-qid/
+    // data-oct at the time they fire), so they only need attaching once
+    // ever — attaching them again on every exercise switch would stack up
+    // duplicate listeners.
+    if (!octetFocusTrackingAttached) {
+        octetFocusTrackingAttached = true;
+        document.addEventListener('focusin', handleOctetFocusIn);
+        document.addEventListener('focusout', handleOctetFocusOutFallback);
+    }
+
+    const boxes = Array.from(document.querySelectorAll('.octet-bitbox'));
+    boxes.forEach(box => {
+        // Select any existing digit when the box gains focus (via click,
+        // Tab, or arrow-key navigation) so typing immediately overwrites
+        // it instead of requiring a manual delete first. Deferred a tick
+        // since some mobile browsers reset the selection right after the
+        // focus event if select() is called synchronously.
+        box.addEventListener('focus', () => {
+            setTimeout(() => box.select(), 0);
+        });
+        box.addEventListener('input', e => {
+            const qid = e.target.dataset.qid;
+            const oct = e.target.dataset.oct;
+            const idx = parseInt(e.target.dataset.idx, 10);
+
+            let v = e.target.value.replace(/[^01]/g, '').slice(-1);
+            e.target.value = v;
+            e.target.classList.remove('on', 'off');
+            if (v === '1') e.target.classList.add('on');
+            else if (v === '0') e.target.classList.add('off');
+            updateBitPlaceValueLabel(qid, oct, idx, v);
+
+            updateCollapsedOctetValue(qid, oct);
+            saveConversionProgress();
+
+            if (v && idx < 7) {
+                const nextBox = document.querySelector(`.octet-bitbox[data-qid="${qid}"][data-oct="${oct}"][data-idx="${idx + 1}"]`);
+                if (nextBox) nextBox.focus();
+            } else if (v && idx === 7) {
+                // Last bit of this octet — hop to the next octet's field,
+                // same "keep moving forward" feel as Phase 1's own
+                // auto-advance. Just move focus: the delegated focusin
+                // listener (handleOctetFocusIn) reacts to that focus
+                // change and handles collapsing this octet's card and
+                // expanding the next one, in that order, automatically.
+                const nextOct = parseInt(oct, 10) + 1;
+                const nextCollapsed = nextOct <= 3
+                    ? document.querySelector(`.ip-octet-collapsed[data-qid="${qid}"][data-oct="${nextOct}"]`)
+                    : null;
+
+                if (nextCollapsed) {
+                    nextCollapsed.focus();
+                } else {
+                    // Last bit of the last octet — nothing further to
+                    // focus; releasing focus lets the focusout fallback
+                    // collapse this card.
+                    e.target.blur();
+                }
+            }
+        });
+        box.addEventListener('keydown', e => {
+            const qid = e.target.dataset.qid;
+            const oct = e.target.dataset.oct;
+            const idx = parseInt(e.target.dataset.idx, 10);
+            if (e.key === 'Backspace' && !e.target.value && idx > 0) {
+                const prevBox = document.querySelector(`.octet-bitbox[data-qid="${qid}"][data-oct="${oct}"][data-idx="${idx - 1}"]`);
+                if (prevBox) prevBox.focus();
+            }
+            if (e.key === 'ArrowLeft' && idx > 0) {
+                const prevBox = document.querySelector(`.octet-bitbox[data-qid="${qid}"][data-oct="${oct}"][data-idx="${idx - 1}"]`);
+                if (prevBox) prevBox.focus();
+            }
+            if (e.key === 'ArrowRight' && idx < 7) {
+                const nextBox = document.querySelector(`.octet-bitbox[data-qid="${qid}"][data-oct="${oct}"][data-idx="${idx + 1}"]`);
+                if (nextBox) nextBox.focus();
+            }
+        });
+    });
+}
+
+// Wires up input formatting/auto-advance for bit boxes, and plain change
+// listeners for the other input types, on whatever is currently rendered
+// in #codeDisplay.
+function attachConversionInputHandlers(ex) {
+    if (!ex) return;
+    if (ex.type === 'd2b') {
+        const boxes = Array.from(document.querySelectorAll('.bitbox'));
+        boxes.forEach((box, idx) => {
+            // Select any existing digit on focus so typing overwrites it
+            // instead of requiring a manual delete first (see the matching
+            // comment in attachExpandableOctetHandlers for why this is
+            // deferred a tick).
+            box.addEventListener('focus', () => {
+                setTimeout(() => box.select(), 0);
+            });
+            box.addEventListener('input', e => {
+                let v = e.target.value.replace(/[^01]/g, '').slice(-1);
+                e.target.value = v;
+                e.target.classList.remove('on', 'off');
+                if (v === '1') e.target.classList.add('on');
+                else if (v === '0') e.target.classList.add('off');
+                updatePlainBitPlaceValueLabel(e.target.dataset.qid, idx, v);
+                if (v && idx < boxes.length - 1) boxes[idx + 1].focus();
+                saveConversionProgress();
+            });
+            box.addEventListener('keydown', e => {
+                if (e.key === 'Backspace' && !e.target.value && idx > 0) boxes[idx - 1].focus();
+                if (e.key === 'ArrowLeft' && idx > 0) boxes[idx - 1].focus();
+                if (e.key === 'ArrowRight' && idx < boxes.length - 1) boxes[idx + 1].focus();
+            });
+        });
+    } else if (ex.type === 'ip_d2b' || ex.type === 'mask_d2b') {
+        attachExpandableOctetHandlers();
+    } else {
+        document.querySelectorAll('.answer-input-num, .ip-octet-bin, .ip-octet-dec').forEach(inp => {
+            inp.addEventListener('input', () => saveConversionProgress());
+        });
+    }
+}
+
+
+function saveProgress(index, value) {
+    if (exerciseData[currentFile]) {
+        if (exerciseData[currentFile].isLineOrdering) {
+            // For line ordering, progress tracking happens via drag/drop
+            return;
+        } else {
+            // Legacy: for fill-in-the-blank
+            exerciseData[currentFile].userProgress[index] = value;
+        }
+    }
+}
+
+function setInputsDisabled(disabled) {
+    const ex = exerciseData[currentFile];
+    
+    // Handle line ordering exercises
+    if (ex && ex.isLineOrdering) {
+        const draggableLines = document.querySelectorAll('.draggable-line');
+        draggableLines.forEach(line => {
+            line.draggable = !disabled;
+            const jumpSelect = line.querySelector('.jump-to-select');
+            if (jumpSelect) jumpSelect.disabled = disabled;
+            if (disabled) {
+                line.classList.add('locked');
+                line.setAttribute('title', 'Locked');
+            } else {
+                line.classList.remove('locked');
+                line.removeAttribute('title');
+            }
+        });
+        refreshUpDownButtonStates(disabled);
+    }
+
+    // Handle binary/IP conversion questions
+    if (ex && ex.isConversionQuestion) {
+        document.querySelectorAll('.bitbox, .answer-input-num, .ip-octet-bin, .ip-octet-dec').forEach(inp => {
+            inp.disabled = disabled;
+            if (disabled) {
+                inp.classList.add('locked');
+                inp.setAttribute('title', 'Locked');
+            } else {
+                inp.classList.remove('locked');
+                inp.removeAttribute('title');
+            }
+        });
+    }
+    
+    // Legacy: handle fill-in-the-blank exercises
+    const inputs = document.querySelectorAll('.code-input');
+    inputs.forEach(input => {
+        input.disabled = disabled;
+        if (disabled) {
+            input.classList.add('locked');
+            input.setAttribute('title', 'Locked');
+        } else {
+            input.classList.remove('locked');
+            input.removeAttribute('title');
+        }
+    });
+    
+    const editor = document.querySelector('.code-editor');
+    if (editor) {
+        if (disabled) editor.classList.add('locked'); 
+        else editor.classList.remove('locked');
+    }
+}
+
+function updateSidebarScore(file) {
+    const safeId = file.replace(/\./g, '-');
+    const scoreSpan = document.getElementById(`score-${safeId}`);
+    const ex = exerciseData[file];
+    if (!scoreSpan || !ex) return;
+    scoreSpan.textContent = `${ex.score}/${ex.answers.length}`;
+    
+    // Remove all score classes first
+    scoreSpan.classList.remove('completed-score', 'partial-score');
+    
+    // Add appropriate class based on score
+    if (ex.score === ex.answers.length) {
+        scoreSpan.classList.add('completed-score');  // 100% correct
+    } else if (ex.score > 0) {
+        scoreSpan.classList.add('partial-score');     // Partial correct
+    }
+    // If score is 0, keep default styling (unanswered)
+}
+
+function updateSummaryPanel() {
+    let totalGot = 0;
+    let totalPossible = 0;
+    for (const file in exerciseData) {
+        const ex = exerciseData[file];
+        totalGot += Number(ex.score || 0);
+        totalPossible += ex.answers.length;
+    }
+    document.getElementById('summaryValue').textContent = `${totalGot} / ${totalPossible}`;
+
+    // Keep the sidebar QR code in sync with the running total so it always
+    // reflects the student's current score, not just the score at the end.
+    // Encryption is async, so this fires and updates the QR once ready.
+    if (currentUser) {
+        buildResultsShareUrl(totalGot, totalPossible).then(shareUrl => {
+            renderQrInto('sidebarQrCodeBox', shareUrl, 110);
+        });
+    }
+}
+
+// --- SUBNET VISUALIZER (ungraded tool) — sidebar view toggle ---
+// Swaps the main content column between the graded exercise view and the
+// Subnetify panels. Lazily initializes the visualizer engine on first
+// open (its DOM already exists, just hidden, so this only wires up event
+// listeners + does the first render — see SubnetVisualizer.init's guard).
+function showSubnetVisualizer() {
+    document.querySelectorAll('.sidebar li').forEach(l => l.classList.remove('active'));
+    const navItem = document.getElementById('nav-subnetVisualizer');
+    if (navItem) navItem.classList.add('active');
+
+    document.getElementById('exerciseArea').style.display = 'none';
+    document.getElementById('timerContainer').style.display = 'none';
+    document.getElementById('subnetVisualizerView').style.display = 'flex';
+
+    currentFile = ''; // no graded exercise is "current" while the tool is open
+
+    // The console drawer/output panel is exercise-specific (sample output
+    // for a conversion question) and has no meaning here — close it so it
+    // doesn't linger over the visualizer. currentFile is cleared first so
+    // updateConsoleDrawerTab correctly finds no sample output to pull up.
+    closeSampleOutputModal();
+    updateConsoleDrawerTab(false);
+
+    SubnetVisualizer.init();
+
+    closeSidebarIfMobile();
+}
+
+function switchExercise(name, el) {
+    currentFile = name;
+    document.getElementById('subnetVisualizerView').style.display = 'none';
+    document.getElementById('exerciseArea').style.display = 'block';
+    // The visualizer hides the timer bar (it's exercise-specific chrome)
+    // without stopping the underlying interval — re-show it here if an
+    // exam timer is actually still running, rather than leaving it hidden
+    // for the rest of the session.
+    if (timerIntervalId) {
+        document.getElementById('timerContainer').style.display = 'flex';
+    }
+    document.querySelectorAll('.sidebar li').forEach(l => l.classList.remove('active'));
+    el.classList.add('active');
+    
+    document.getElementById('currentFileName').textContent = exerciseData[name].label || name;
+    const display = document.getElementById('codeDisplay');
+    display.innerHTML = exerciseData[name].html;
+
+    // Handle line ordering exercises
+    if (exerciseData[name].isLineOrdering) {
+        setupDragAndDrop();
+        setupJumpToUI(name);
+        restoreUserOrder(name);
+        setupUpDownButtons();
+    } else if (exerciseData[name].isConversionQuestion) {
+        attachConversionInputHandlers(exerciseData[name]);
+        restoreConversionAnswer(exerciseData[name]);
+    } else {
+        // Legacy: fill-in-the-blank handling
+        const inputs = display.querySelectorAll('.code-input');
+        inputs.forEach((input, index) => {
+            input.value = exerciseData[name].userProgress[index];
+        });
+    }
+
+    // Restore disabled state and styles if previously verified (locked)
+    const ex = exerciseData[name];
+    if (ex.locked) {
+        if (ex.isLineOrdering) {
+            document.querySelectorAll('.draggable-line').forEach(draggableEl => {
+                draggableEl.draggable = false;
+                draggableEl.classList.add('locked');
+                const jumpSelect = draggableEl.querySelector('.jump-to-select');
+                if (jumpSelect) jumpSelect.disabled = true;
+            });
+            // Re-derive correct/incorrect styling from the (possibly
+            // restored) line order, since the DOM was just rebuilt from
+            // ex.html above and doesn't carry the classes over on its own.
+            applyLineOrderingLockedStyling(ex);
+        } else if (ex.isConversionQuestion) {
+            const { allCorrect } = gradeConversionScore(ex, ex.userAnswer);
+            const qCard = document.querySelector('.conversion-question');
+            if (qCard) qCard.classList.add(allCorrect ? 'correct' : 'incorrect');
+            applyOctetFeedback(ex); // Phase 3/4: re-color each octet on return visits
+        } else {
+            const inputs = display.querySelectorAll('.code-input');
+            inputs.forEach((input, idx) => {
+                const val = input.value.trim();
+                if (ex.answers[idx].includes(val)) {
+                    input.style.borderBottomColor = "var(--secondary)";
+                } else {
+                    input.style.borderBottomColor = "var(--error)";
+                }
+            });
+        }
+        setInputsDisabled(true);
+        
+        // Only allow reset in practice mode
+        if (appSettings.mode === 'practice') {
+            document.getElementById('actionButton').textContent = 'Reset';
+        } else {
+            document.getElementById('actionButton').textContent = 'Locked';
+            document.getElementById('actionButton').disabled = true;
+        }
+    } else {
+        // Editable
+        setInputsDisabled(false);
+        if (!ex.isLineOrdering && !ex.isConversionQuestion) {
+            display.querySelectorAll('.code-input').forEach(i => i.style.borderBottomColor = 'var(--secondary)');
+        }
+        document.getElementById('actionButton').textContent = 'Verify Answer';
+        document.getElementById('actionButton').disabled = false;
+    }
+
+    updateSidebarScore(name);
+    updateSummaryPanel();
+
+    // Show the persisted feedback if this question was already checked
+    // (so switching away and back — including across an exam-mode
+    // reload — doesn't lose it), otherwise fully clear both the text AND
+    // the class. Clearing text alone previously left the colored
+    // success/error/warning box styling behind on a blank feedback area.
+    const feedbackEl = document.getElementById('feedback');
+    if (ex.locked) {
+        const feedback = buildFeedbackForExercise(ex);
+        feedbackEl.textContent = feedback.text;
+        feedbackEl.className = feedback.cls;
+    } else {
+        feedbackEl.textContent = "";
+        feedbackEl.className = "";
+    }
+
+    // Auto-show/hide the console panel per the global "Sample Output"
+    // setting (Settings modal), which now applies uniformly across every
+    // activity rather than being toggled per exercise. The drawer tab
+    // (updated inside showSampleOutput/closeSampleOutputModal) remains
+    // available for the student to manually pull the panel into view for
+    // this activity regardless of the setting.
+    applyAutoShowForCurrentExercise();
+}
+
+// Marks each draggable line in the current #orderingArea as correct/incorrect
+// based on its DOM position vs. ex.validPositionsMap. Shared by checkAnswers
+// (right after verifying) and by switchExercise (when redisplaying an
+// already-locked exercise, e.g. after restoring a persisted exam session),
+// so the green/red styling matches the stored result either way.
+function applyLineOrderingLockedStyling(ex) {
+    if (!ex || !ex.isLineOrdering) return [];
+    const orderingArea = document.getElementById('orderingArea');
+    if (!orderingArea) return [];
+
+    const orderedLines = Array.from(orderingArea.querySelectorAll('.draggable-line'));
+    const usedValidPositions = new Set();
+
+    orderedLines.forEach((lineEl, idx) => {
+        lineEl.classList.remove('correct', 'incorrect');
+        const originalIdx = parseInt(lineEl.getAttribute('data-original-idx'));
+        const validPositions = ex.validPositionsMap[originalIdx];
+
+        let isCorrect = false;
+        if (validPositions && validPositions.length === 1) {
+            isCorrect = (originalIdx === idx);
+        } else if (validPositions && validPositions.length > 1) {
+            isCorrect = validPositions.includes(idx) && !usedValidPositions.has(idx);
+            if (isCorrect) usedValidPositions.add(idx);
+        }
+
+        lineEl.classList.add(isCorrect ? 'correct' : 'incorrect');
+    });
+
+    return orderedLines;
+}
+
+// Determines whether a conversion question's stored answer represents no
+// attempt at all (as opposed to an attempt that happens to be wrong). This
+// matters because exam-time-expiry force-locks every exercise — including
+// ones the student never opened or typed into — and without this check
+// those would be graded/labeled the same as a genuine wrong attempt.
+function isConversionAnswerEmpty(ex) {
+    if (!ex || !ex.isConversionQuestion) return true;
+    const ans = ex.userAnswer || '';
+    if (ex.type === 'd2b') {
+        // Untouched bit boxes are represented as '_' by
+        // collectConversionAnswer, so all-underscore (or empty) means
+        // nothing was typed.
+        return ans.length === 0 || /^_+$/.test(ans);
+    }
+    if (ex.type === 'ip_d2b' || ex.type === 'ip_b2d' || ex.type === 'mask_d2b' || ex.type === 'mask_c2d') {
+        return ans.split('.').every(part => part.trim() === '');
+    }
+    // b2d, class_cidr
+    return ans.trim() === '';
+}
+
+// Builds the feedback message + CSS class for an exercise based on its
+// current score/lock state. Shared by checkAnswers (right after verifying)
+// and switchExercise (to restore the same feedback when the student
+// navigates back to an already-checked question, instead of leaving it
+// blank) — so the message is always consistent no matter how it's reached,
+// and exam mode never reveals the correct answer either way.
+function buildFeedbackForExercise(ex) {
+    const totalLines = ex.answers.length;
+    const score = ex.score || 0;
+    const perfect = score === totalLines;
+
+    if (perfect) {
+        return {
+            text: ex.isConversionQuestion ? "✨ Correct! ✨" : "✨ Perfect! All lines in correct order! ✨",
+            cls: "success show",
+            perfect: true
+        };
+    }
+    if (ex.isConversionQuestion) {
+        // If time ran out (or the student otherwise never entered anything)
+        // before this question was ever attempted, say so plainly instead
+        // of "Not quite" — there was nothing to grade as wrong.
+        if (score === 0 && isConversionAnswerEmpty(ex)) {
+            return {
+                text: "No answer submitted.",
+                cls: "error show",
+                perfect: false
+            };
+        }
+        // Neither mode reveals the correct value here: practice mode lets
+        // the student reset and try again, and exam mode has no reset, so
+        // showing it would double as an answer key mid-exam.
+        if (totalLines > 1) {
+            // Octet-scored (Phase 3 · IP Dec→Bin / Phase 4 · IP Bin→Dec):
+            // partial credit is possible, so surface how many octets were
+            // right rather than a flat "not quite".
+            return {
+                text: (appSettings.mode === 'practice')
+                    ? `${score}/${totalLines} octets correct — try again.`
+                    : `${score}/${totalLines} octets correct.`,
+                cls: score > 0 ? "warning show" : "error show",
+                perfect: false
+            };
+        }
+        return {
+            text: "Not quite" + (appSettings.mode === 'practice' ? " — try again." : "."),
+            cls: "error show",
+            perfect: false
+        };
+    }
+    return {
+        text: `Progress: ${score}/${totalLines} correct.`,
+        cls: "warning show",
+        perfect: false
+    };
+}
+
+function checkAnswers() {
+    if (!currentFile) return;
+    const ex = exerciseData[currentFile];
+    let score = 0;
+
+    if (ex.isLineOrdering) {
+        // Save user's ordering before verification
+        const orderingArea = document.getElementById('orderingArea');
+        const orderedLinesBefore = Array.from(orderingArea.querySelectorAll('.draggable-line'));
+        ex.userOrder = orderedLinesBefore.map(el => parseInt(el.getAttribute('data-original-idx')));
+
+        // Verify line ordering (with semantic equivalence for identical
+        // lines) and apply correct/incorrect styling in one pass.
+        const orderedLines = applyLineOrderingLockedStyling(ex);
+        score = orderedLines.filter(el => el.classList.contains('correct')).length;
+    } else if (ex.isConversionQuestion) {
+        ex.userAnswer = collectConversionAnswer(ex);
+        const { score: earnedScore, allCorrect } = gradeConversionScore(ex, ex.userAnswer);
+        score = earnedScore;
+        const qCard = document.querySelector('.conversion-question');
+        if (qCard) qCard.classList.add(allCorrect ? 'correct' : 'incorrect');
+        applyOctetFeedback(ex); // Phase 3/4: color each octet individually
+    } else {
+        // Legacy: fill-in-the-blank verification
+        const inputs = document.querySelectorAll('.code-input');
+        const correctArr = ex.answers;
+
+        inputs.forEach((input, index) => {
+            const val = input.value.trim();
+            if (correctArr[index].includes(val)) {
+                input.style.borderBottomColor = "var(--secondary)";
+                score++;
+            } else {
+                input.style.borderBottomColor = "var(--error)";
+            }
+        });
+    }
+
+    // Lock inputs and mark exercise locked
+    setInputsDisabled(true);
+    ex.score = score;
+    ex.locked = true;
+    
+    const totalLines = ex.answers.length;
+    ex.isPartial = score > 0 && score < totalLines;
+
+    // Update Sidebar Score
+    updateSidebarScore(currentFile);
+    updateSummaryPanel();
+
+    const msg = document.getElementById('feedback');
+    const feedback = buildFeedbackForExercise(ex);
+    msg.textContent = feedback.text;
+    msg.className = feedback.cls;
+    if (feedback.perfect) {
+        // Bigger & longer confetti
+        triggerBigConfetti();
+    }
+
+    // Change action button based on mode
+    const actionBtn = document.getElementById('actionButton');
+    if (appSettings.mode === 'exam') {
+        actionBtn.textContent = 'Locked';
+        actionBtn.disabled = true;
+
+        // Persist this student's progress so it survives a reload.
+        saveExamSession();
+
+        // Check if all exercises have been answered in exam mode
+        if (checkIfAllAnswered()) {
+            // Stop timer early and show score summary
+            stopTimer();
+            setTimeout(() => {
+                showScoreSummaryModal('Congratulations! All exercises completed before time ran out!', 'success');
+            }, 500);
+        }
+    } else {
+        actionBtn.textContent = 'Reset';
+    }
+}
+
+function resetCurrentExercise() {
+    if (!currentFile) return;
+    
+    // Prevent reset in exam mode
+    if (appSettings.mode === 'exam') {
+        showAlertModal('Reset Not Allowed', 'Reset is not allowed in Exam Mode.');
+        return;
+    }
+    
+    const ex = exerciseData[currentFile];
+    
+    if (ex.isLineOrdering) {
+        ex.userOrder = [];
+        const orderingArea = document.getElementById('orderingArea');
+        
+        // Reshuffle the lines back to their original shuffled positions
+        const shuffledLines = ex.shuffledIndices.map(origIdx => {
+            const draggableEl = orderingArea.querySelector(`[data-original-idx="${origIdx}"]`);
+            return draggableEl;
+        });
+        
+        // Sort by current position in shuffled order and re-render
+        shuffledLines.forEach((el, idx) => {
+            if (el) {
+                orderingArea.appendChild(el);
+                el.classList.remove('correct', 'incorrect');
+            }
+        });
+        setupDragAndDrop();
+        setupJumpToUI(currentFile);
+        setupUpDownButtons();
+    } else if (ex.isConversionQuestion) {
+        ex.userAnswer = '';
+        document.querySelectorAll('.bitbox').forEach(b => {
+            b.value = '';
+            b.classList.remove('on', 'off');
+        });
+        document.querySelectorAll('.answer-input-num, .ip-octet-bin, .ip-octet-dec').forEach(i => i.value = '');
+        const qCard = document.querySelector('.conversion-question');
+        if (qCard) qCard.classList.remove('correct', 'incorrect');
+        clearOctetFeedback(); // Phase 3/4: remove leftover per-octet coloring from the prior attempt
+    } else {
+        // Legacy: fill-in-the-blank reset
+        ex.userProgress = ex.userProgress.map(() => "");
+        const display = document.getElementById('codeDisplay');
+        const inputs = display.querySelectorAll('.code-input');
+        inputs.forEach((input) => {
+            input.value = '';
+            input.style.borderBottomColor = 'var(--secondary)';
+        });
+    }
+    
+    ex.score = 0;
+    ex.locked = false;
+    setInputsDisabled(false);
+
+    // Update sidebar and summary
+    updateSidebarScore(currentFile);
+    updateSummaryPanel();
+
+    // Reset feedback and action button
+    const feedbackEl = document.getElementById('feedback');
+    feedbackEl.textContent = '';
+    feedbackEl.className = '';
+    document.getElementById('actionButton').textContent = 'Verify Answer';
+}
+
+function triggerConfetti() {
+    confetti({
+        particleCount: 100,
+        spread: 70,
+        origin: { y: 0.6 },
+        colors: ['#6200ee', '#03dac6', '#ffca28']
+    });
+}
+
+function triggerBigConfetti() {
+    // Burst multiple waves for a bigger, longer celebration
+    const colors = ['#6200ee', '#03dac6', '#ffca28', '#ff4081', '#00bcd4'];
+    const bursts = [
+        { particleCount: 300, spread: 120, startVelocity: 40 },
+        { particleCount: 200, spread: 140, startVelocity: 30 },
+        { particleCount: 150, spread: 160, startVelocity: 20 }
+    ];
+
+    let delay = 0;
+    bursts.forEach(b => {
+        setTimeout(() => {
+            confetti(Object.assign({}, b, { origin: { y: 0.6 }, colors }));
+        }, delay);
+        delay += 500; // space the bursts
+    });
+}
+function exportProgress() {
+    let csv = "Student,Exercise,Score\n";
+    for (const file in exerciseData) {
+        const ex = exerciseData[file];
+        const label = (ex.label || file).replace(/"/g, '""');
+        csv += `${currentUser},"${label}",${ex.score || 0}/${ex.answers.length}\n`;
+    }
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${currentUser}_results.csv`;
+    a.click();
+}
+
+// --- SETTINGS AND MODE MANAGEMENT ---
+function openSettingsModal() {
+    document.getElementById('settingsModal').style.display = 'block';
+    document.getElementById('settingsOverlay').style.display = 'block';
+    
+    // Set current settings in the modal
+    document.querySelector(`input[name="mode"][value="${appSettings.mode}"]`).checked = true;
+    document.getElementById('timerInput').value = appSettings.timerMinutes;
+
+    const autoShowToggle = document.getElementById('autoShowSampleToggle');
+    if (autoShowToggle) {
+        autoShowToggle.checked = appSettings.autoShowSample;
+    }
+
+    const practiceSeedInput = document.querySelector(`input[name="practiceSeedMode"][value="${appSettings.practiceQuestionMode}"]`);
+    if (practiceSeedInput) practiceSeedInput.checked = true;
+    
+    // Show/hide timer section (exam only) and practice seed section
+    // (practice only) based on mode — the two are mutually exclusive.
+    const timerSection = document.getElementById('timerSection');
+    const practiceSeedSection = document.getElementById('practiceSeedSection');
+    if (appSettings.mode === 'exam') {
+        timerSection.style.display = 'block';
+        if (practiceSeedSection) practiceSeedSection.style.display = 'none';
+    } else {
+        timerSection.style.display = 'none';
+        if (practiceSeedSection) practiceSeedSection.style.display = 'block';
+    }
+}
+
+function closeSettingsModal() {
+    document.getElementById('settingsModal').style.display = 'none';
+    document.getElementById('settingsOverlay').style.display = 'none';
+}
+
+function handleModeChange() {
+    const selectedMode = document.querySelector('input[name="mode"]:checked').value;
+    const timerSection = document.getElementById('timerSection');
+    const practiceSeedSection = document.getElementById('practiceSeedSection');
+    
+    if (selectedMode === 'exam') {
+        timerSection.style.display = 'block';
+        if (practiceSeedSection) practiceSeedSection.style.display = 'none';
+    } else {
+        timerSection.style.display = 'none';
+        if (practiceSeedSection) practiceSeedSection.style.display = 'block';
+    }
+}
+
+function validateTimerInput(input) {
+    let value = parseInt(input.value, 10);
+    
+    if (isNaN(value)) {
+        input.classList.add('invalid');
+        return false;
+    }
+    
+    if (value < 1) {
+        input.value = '1';
+        input.classList.remove('invalid');
+    } else if (value > 999) {
+        input.value = '999';
+        input.classList.remove('invalid');
+    } else {
+        input.classList.remove('invalid');
+    }
+    
+    return true;
+}
+
+function saveSettings() {
+    const selectedMode = document.querySelector('input[name="mode"]:checked').value;
+    const timerInput = document.getElementById('timerInput');
+    const timerValue = parseInt(timerInput.value, 10);
+    
+    // Validate timer input
+    if (selectedMode === 'exam') {
+        if (isNaN(timerValue) || timerValue < 1 || timerValue > 999) {
+            alert('Please enter a valid timer value between 1 and 999 minutes.');
+            return;
+        }
+        appSettings.timerMinutes = timerValue;
+    }
+    
+    appSettings.mode = selectedMode;
+
+    const autoShowToggle = document.getElementById('autoShowSampleToggle');
+    if (autoShowToggle) {
+        appSettings.autoShowSample = autoShowToggle.checked;
+    }
+
+    const practiceSeedInput = document.querySelector('input[name="practiceSeedMode"]:checked');
+    if (practiceSeedInput) {
+        const previousPracticeQuestionMode = appSettings.practiceQuestionMode;
+        appSettings.practiceQuestionMode = practiceSeedInput.value;
+        // Clear any already-generated random seed whenever the setting
+        // changes, so the next login/session generates a genuinely fresh
+        // one rather than reusing whatever was current before the switch
+        // (relevant mainly if this setting is ever changed mid-session in
+        // the future; currently Settings is only reachable pre-login).
+        if (previousPracticeQuestionMode !== appSettings.practiceQuestionMode) {
+            currentPracticeSeed = null;
+        }
+    }
+
+    closeSettingsModal();
+
+    // Re-apply the (possibly just-changed) auto-show preference to
+    // whatever exercise is currently open, so the console panel reacts
+    // immediately rather than waiting for the next exercise switch.
+    applyAutoShowForCurrentExercise();
+    
+    // Show toast notification
+    showNotification(`Settings saved! Mode: ${selectedMode === 'exam' ? 'Exam (' + timerValue + ' min)' : 'Practice'}`);
+}
+
+function showNotification(message) {
+    // Create a temporary notification
+    const notification = document.createElement('div');
+    notification.style.cssText = `
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        background: var(--primary);
+        color: white;
+        padding: 12px 20px;
+        border-radius: 4px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+        z-index: 2001;
+        animation: slideIn 0.3s ease;
+    `;
+    notification.textContent = message;
+    document.body.appendChild(notification);
+    
+    setTimeout(() => {
+        notification.style.animation = 'slideOut 0.3s ease';
+        setTimeout(() => notification.remove(), 300);
+    }, 3000);
+}
+
+// --- EXAM SESSION PERSISTENCE (keyed by student email) ---
+// Exam mode only: keeps each student's in-progress or completed exam
+// (locked/unlocked state, score, and line order per exercise, plus the
+// real timer deadline) in localStorage so a page reload, browser crash,
+// or accidental tab close doesn't cost them their progress or hand them
+// a brand-new full-length timer. Practice mode is intentionally not
+// persisted — there's nothing at stake in a reset there.
+function getExamStorageKey(email) {
+    return `examSession_${email}`;
+}
+
+function saveExamSession() {
+    if (appSettings.mode !== 'exam' || !currentUser) return;
+
+    const exercises = {};
+    for (const file in exerciseData) {
+        const ex = exerciseData[file];
+        exercises[file] = {
+            locked: !!ex.locked,
+            score: ex.score || 0,
+            isPartial: !!ex.isPartial,
+            userOrder: ex.isLineOrdering ? (ex.userOrder || []) : undefined,
+            userAnswer: ex.isConversionQuestion ? (ex.userAnswer || '') : undefined
+        };
+    }
+
+    const isTimeUp = typeof examEndTimestamp === 'number' && Date.now() >= examEndTimestamp;
+
+    const session = {
+        timerMinutes: appSettings.timerMinutes,
+        examEndTimestamp: examEndTimestamp,
+        completed: checkIfAllAnswered() || isTimeUp,
+        exercises,
+        savedAt: Date.now()
+    };
+
+    try {
+        localStorage.setItem(getExamStorageKey(currentUser), JSON.stringify(session));
+    } catch (e) {
+        console.warn('Could not save exam session progress:', e);
+    }
+}
+
+function loadExamSession(email) {
+    try {
+        const raw = localStorage.getItem(getExamStorageKey(email));
+        return raw ? JSON.parse(raw) : null;
+    } catch (e) {
+        console.warn('Could not load exam session progress:', e);
+        return null;
+    }
+}
+
+// Timer Management
+// resumeSeconds, when provided, resumes a persisted exam session at the
+// real remaining time (e.g. after a page reload) instead of granting a
+// fresh full-length timer.
+function startTimer(resumeSeconds) {
+    if (appSettings.mode !== 'exam') {
+        return;
+    }
+
+    if (typeof resumeSeconds === 'number' && resumeSeconds >= 0) {
+        timeRemaining = resumeSeconds;
+        examEndTimestamp = Date.now() + timeRemaining * 1000;
+    } else {
+        timeRemaining = appSettings.timerMinutes * 60; // Convert to seconds
+        examEndTimestamp = Date.now() + timeRemaining * 1000;
+    }
+
+    const timerContainer = document.getElementById('timerContainer');
+    timerContainer.style.display = 'flex';
+
+    updateTimerDisplay();
+    saveExamSession(); // persist the deadline right away, before any answers are checked
+
+    let tickCount = 0;
+    timerIntervalId = setInterval(() => {
+        // Recompute from the fixed deadline each tick (rather than just
+        // decrementing) so setInterval drift can't desync the displayed
+        // time — or a persisted deadline — from the real cutoff.
+        timeRemaining = Math.max(0, Math.round((examEndTimestamp - Date.now()) / 1000));
+        updateTimerDisplay();
+
+        // Throttle persistence to avoid writing to storage every second.
+        tickCount++;
+        if (tickCount % 5 === 0) {
+            saveExamSession();
+        }
+
+        if (timeRemaining <= 0) {
+            clearInterval(timerIntervalId);
+            handleTimerExpired();
+        }
+    }, 1000);
+}
+
+function updateTimerDisplay() {
+    const minutes = Math.floor(timeRemaining / 60);
+    const seconds = timeRemaining % 60;
+    const display = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+    document.getElementById('timerDisplay').textContent = display;
+    
+    const timerDisplay = document.getElementById('timerDisplay');
+    timerDisplay.classList.remove('warning', 'critical');
+    
+    if (timeRemaining <= 60) {
+        timerDisplay.classList.add('critical');
+    } else if (timeRemaining <= 300) {
+        timerDisplay.classList.add('warning');
+    }
+}
+
+function stopTimer() {
+    if (timerIntervalId) {
+        clearInterval(timerIntervalId);
+        timerIntervalId = null;
+    }
+    const timerContainer = document.getElementById('timerContainer');
+    timerContainer.style.display = 'none';
+}
+
+function handleTimerExpired() {
+    stopTimer();
+    
+    // Lock all exercises
+    for (const file in exerciseData) {
+        if (!exerciseData[file].locked) {
+            exerciseData[file].locked = true;
+        }
+    }
+    setInputsDisabled(true);
+    document.getElementById('actionButton').disabled = true;
+
+    // Persist the final, fully-locked state for this student.
+    saveExamSession();
+
+    // Show score summary modal
+    showScoreSummaryModal('Time is up! Your exam session has ended.', 'warning');
+}
+
+// --- DRAG AND DROP LINE ORDERING ---
+function setupDragAndDrop() {
+    const orderingArea = document.getElementById('orderingArea');
+    
+    if (!orderingArea) return;
+    
+    // Attach listeners to all draggable lines
+    const draggableLines = orderingArea.querySelectorAll('.draggable-line');
+    draggableLines.forEach(line => attachDragListeners(line));
+    
+    // Setup drop zone for the single ordering area
+    setupDropZone(orderingArea);
+}
+
+function attachDragListeners(element) {
+    element.addEventListener('dragstart', handleDragStart);
+    element.addEventListener('dragend', handleDragEnd);
+}
+
+function handleDragStart(e) {
+    if (exerciseData[currentFile]?.locked) {
+        e.preventDefault();
+        return;
+    }
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/html', this.innerHTML);
+    this.classList.add('dragging');
+    draggedElement = this;
+}
+
+function handleDragEnd(e) {
+    this.classList.remove('dragging');
+    // Remove any drop placeholder when dragging ends
+    document.querySelectorAll('.drop-placeholder').forEach(p => p.remove());
+}
+
+function setupDropZone(zone) {
+    if (!zone) return;
+
+    // Create a single placeholder element used during drag to indicate insertion point
+    const placeholder = document.createElement('div');
+    placeholder.className = 'drop-placeholder';
+
+    zone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        zone.classList.add('drag-over');
+
+        // Determine nearest element to insert before based on mouse Y
+        const afterElement = getDragAfterElement(zone, e.clientY);
+
+        if (!afterElement) {
+            // Append to end
+            if (zone.lastElementChild !== placeholder) zone.appendChild(placeholder);
+        } else {
+            if (afterElement !== placeholder) zone.insertBefore(placeholder, afterElement);
+        }
+    });
+
+    zone.addEventListener('dragleave', (e) => {
+        // If leaving the zone entirely, remove visual hints
+        const related = e.relatedTarget;
+        if (!related || !zone.contains(related)) {
+            zone.classList.remove('drag-over');
+            placeholder.remove();
+        }
+    });
+
+    zone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        zone.classList.remove('drag-over');
+
+        if (exerciseData[currentFile]?.locked || !draggedElement) return;
+
+        // Insert dragged element at placeholder position if present
+        const ph = zone.querySelector('.drop-placeholder');
+        if (ph) {
+            zone.insertBefore(draggedElement, ph);
+            ph.remove();
+        } else {
+            zone.appendChild(draggedElement);
+        }
+    });
+}
+
+// Helper: returns the first element that the dragged item should be placed before
+function getDragAfterElement(container, y) {
+    const draggableLines = [...container.querySelectorAll('.draggable-line:not(.dragging)')];
+
+    return draggableLines.reduce((closest, child) => {
+        const box = child.getBoundingClientRect();
+        const offset = y - box.top - box.height / 2;
+        if (offset < 0 && offset > (closest.offset || Number.NEGATIVE_INFINITY)) {
+            return { offset: offset, element: child };
+        } else {
+            return closest;
+        }
+    }, { offset: Number.NEGATIVE_INFINITY }).element || null;
+}
+
+function restoreUserOrder(fileName) {
+    const ex = exerciseData[fileName];
+    if (!ex.isLineOrdering || ex.userOrder.length === 0) return;
+    
+    const orderingArea = document.getElementById('orderingArea');
+    if (!orderingArea) return;
+    
+    // Reorder lines based on saved userOrder
+    ex.userOrder.forEach(origIdx => {
+        const draggableEl = orderingArea.querySelector(`[data-original-idx="${origIdx}"]`);
+        if (draggableEl) {
+            orderingArea.appendChild(draggableEl);
+        }
+    });
+}
+
+let draggedElement = null;
+
+// --- UP/DOWN BUTTONS (touch-friendly alternative to drag-and-drop) ---
+function setupUpDownButtons() {
+    const orderingArea = document.getElementById('orderingArea');
+    if (!orderingArea) return;
+
+    const draggableLines = orderingArea.querySelectorAll('.draggable-line');
+
+    draggableLines.forEach(lineEl => {
+        const upBtn = lineEl.querySelector('.move-up-btn');
+        const downBtn = lineEl.querySelector('.move-down-btn');
+        if (!upBtn || !downBtn) return;
+
+        // Avoid stacking duplicate listeners if this is called more than once
+        upBtn.replaceWith(upBtn.cloneNode(true));
+        downBtn.replaceWith(downBtn.cloneNode(true));
+    });
+
+    // Re-query after cloning, then attach fresh listeners
+    orderingArea.querySelectorAll('.move-up-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            moveLineByOffset(btn.closest('.draggable-line'), -1);
+        });
+    });
+    orderingArea.querySelectorAll('.move-down-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            moveLineByOffset(btn.closest('.draggable-line'), 1);
+        });
+    });
+
+    refreshUpDownButtonStates();
+}
+
+function moveLineByOffset(lineEl, offset) {
+    if (!lineEl || exerciseData[currentFile]?.locked) return;
+
+    const orderingArea = document.getElementById('orderingArea');
+    const allLines = Array.from(orderingArea.querySelectorAll('.draggable-line'));
+    const currentIdx = allLines.indexOf(lineEl);
+    const targetIdx = currentIdx + offset;
+
+    if (targetIdx < 0 || targetIdx >= allLines.length) return; // out of bounds
+
+    const targetEl = allLines[targetIdx];
+
+    // Capture each affected row's position before the DOM move (FLIP: First)
+    const movedFirstRect = lineEl.getBoundingClientRect();
+    const targetFirstRect = targetEl.getBoundingClientRect();
+
+    if (offset < 0) {
+        orderingArea.insertBefore(lineEl, allLines[targetIdx]);
+    } else {
+        orderingArea.insertBefore(lineEl, targetEl.nextSibling);
+    }
+
+    // Animate both the moved row and the row it displaced sliding into place
+    animateRowSwap(lineEl, movedFirstRect);
+    animateRowSwap(targetEl, targetFirstRect);
+
+    refreshUpDownButtonStates();
+}
+
+// Slides an element from its previous position (firstRect) to wherever it
+// now sits in the DOM (Last), using the FLIP technique: Invert the visual
+// position with a transform, then Play by transitioning that transform away.
+function animateRowSwap(el, firstRect) {
+    const lastRect = el.getBoundingClientRect();
+    const deltaY = firstRect.top - lastRect.top;
+
+    if (!deltaY) return; // already in place, nothing to animate
+
+    el.style.transition = 'none';
+    el.style.transform = `translateY(${deltaY}px)`;
+    el.style.zIndex = '5';
+    el.classList.add('swapping');
+
+    // Wait a frame so the browser paints the inverted position before we
+    // transition it away, otherwise the transform jump itself would animate.
+    requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+            el.style.transition = 'transform 0.25s cubic-bezier(0.4, 0, 0.2, 1)';
+            el.style.transform = '';
+        });
+    });
+
+    const cleanup = () => {
+        el.style.transition = '';
+        el.style.zIndex = '';
+        el.classList.remove('swapping');
+        el.removeEventListener('transitionend', cleanup);
+    };
+    el.addEventListener('transitionend', cleanup);
+}
+
+// Disable Up on the first line and Down on the last line.
+// forceLocked lets callers (like setInputsDisabled) specify the lock state
+// directly, since ex.locked isn't always updated yet at call time.
+function refreshUpDownButtonStates(forceLocked) {
+    const orderingArea = document.getElementById('orderingArea');
+    if (!orderingArea) return;
+
+    const allLines = Array.from(orderingArea.querySelectorAll('.draggable-line'));
+    const locked = forceLocked !== undefined ? forceLocked : exerciseData[currentFile]?.locked;
+
+    allLines.forEach((lineEl, idx) => {
+        const upBtn = lineEl.querySelector('.move-up-btn');
+        const downBtn = lineEl.querySelector('.move-down-btn');
+        if (upBtn) upBtn.disabled = locked || idx === 0;
+        if (downBtn) downBtn.disabled = locked || idx === allLines.length - 1;
+    });
+}
+
+// --- JUMP-TO POSITIONING UI ---
+function setupJumpToUI(fileName) {
+    const orderingArea = document.getElementById('orderingArea');
+    if (!orderingArea) return;
+
+    const draggableLines = orderingArea.querySelectorAll('.draggable-line');
+    const totalLines = draggableLines.length;
+
+    draggableLines.forEach(draggableEl => {
+        // Remove old dropdown if exists
+        const oldDropdown = draggableEl.querySelector('.jump-to-container');
+        if (oldDropdown) oldDropdown.remove();
+
+        // Create jump-to dropdown container
+        const jumpToDiv = document.createElement('div');
+        jumpToDiv.className = 'jump-to-container';
+        
+        // Build options for all available line positions
+        let optionsHtml = '<option value="">Jump to →</option>';
+        for (let i = 1; i <= totalLines; i++) {
+            optionsHtml += `<option value="${i - 1}">Line ${i}</option>`;
+        }
+        
+        jumpToDiv.innerHTML = `<select class="jump-to-select">${optionsHtml}</select>`;
+        
+        // Add change handler
+        jumpToDiv.querySelector('.jump-to-select').addEventListener('change', (e) => {
+            if (e.target.value === '') return;
+            const targetIdx = parseInt(e.target.value);
+            moveLineToPosition(orderingArea, draggableEl, targetIdx);
+            e.target.value = ''; // Reset dropdown
+        });
+
+        draggableEl.appendChild(jumpToDiv);
+    });
+}
+
+function moveLineToPosition(container, draggableElement, targetIdx) {
+    if (exerciseData[currentFile]?.locked) return;
+
+    const allDraggableLines = Array.from(container.querySelectorAll('.draggable-line'));
+    const currentIdx = allDraggableLines.indexOf(draggableElement);
+
+    if (currentIdx === targetIdx) return; // Already at target
+
+    // Remove from current position
+    container.removeChild(draggableElement);
+
+    // Insert at target position
+    if (targetIdx >= allDraggableLines.length - 1) {
+        container.appendChild(draggableElement);
+    } else {
+        const targetElement = allDraggableLines[targetIdx];
+        container.insertBefore(draggableElement, targetElement);
+    }
+
+    refreshUpDownButtonStates();
+}
+
+// --- ALERT AND SCORE SUMMARY MODALS ---
+function showAlertModal(title, message) {
+    document.getElementById('alertTitle').textContent = title;
+    document.getElementById('alertMessage').textContent = message;
+    document.getElementById('alertModal').style.display = 'block';
+    document.getElementById('alertOverlay').style.display = 'block';
+}
+
+function closeAlertModal() {
+    document.getElementById('alertModal').style.display = 'none';
+    document.getElementById('alertOverlay').style.display = 'none';
+}
+
+// --- SAMPLE OUTPUT CONSOLE PANEL (slides in from the right) ---
+function showSampleOutput(fileName) {
+    const ex = exerciseData[fileName];
+    const panel = document.getElementById('sampleOutputPanel');
+    const overlay = document.getElementById('sampleOutputOverlay');
+    const content = document.getElementById('sampleOutputContent');
+    if (!ex || !panel || !overlay || !content) return;
+
+    content.textContent = ex.sampleOutput && ex.sampleOutput.length ? ex.sampleOutput : 'No sample output available.';
+
+    overlay.style.display = 'block';
+    panel.setAttribute('aria-hidden', 'false');
+    overlay.setAttribute('aria-hidden', 'false');
+    updateConsoleDrawerTab(true);
+    // Force the transform to its initial state before adding .open so the
+    // slide-in transition actually plays (rather than snapping into place)
+    // even if the panel was just re-shown right after being closed.
+    requestAnimationFrame(() => {
+        panel.classList.add('open');
+    });
+}
+
+function closeSampleOutputModal() {
+    const panel = document.getElementById('sampleOutputPanel');
+    const overlay = document.getElementById('sampleOutputOverlay');
+    if (!panel) return;
+
+    const wasOpen = panel.classList.contains('open');
+    panel.classList.remove('open');
+    panel.setAttribute('aria-hidden', 'true');
+    updateConsoleDrawerTab(false);
+
+    if (overlay) {
+        overlay.setAttribute('aria-hidden', 'true');
+        if (wasOpen) {
+            // Wait for the slide-out transition to finish before hiding the
+            // overlay, otherwise it disappears abruptly mid-animation.
+            const onTransitionEnd = () => {
+                overlay.style.display = 'none';
+                panel.removeEventListener('transitionend', onTransitionEnd);
+            };
+            panel.addEventListener('transitionend', onTransitionEnd);
+        } else {
+            // Nothing was actually open, so there's no transition to wait
+            // for — hide the overlay immediately instead of leaving a
+            // transitionend listener that would never fire.
+            overlay.style.display = 'none';
+        }
+    }
+}
+
+// --- CONSOLE DRAWER TAB ---
+// A per-activity handle, always available (when the current exercise has
+// sample output) for pulling the console into view by hand, independent of
+// the global auto-show setting.
+function toggleConsolePanel() {
+    const panel = document.getElementById('sampleOutputPanel');
+    if (!panel || !currentFile) return;
+    if (panel.classList.contains('open')) {
+        closeSampleOutputModal();
+    } else {
+        showSampleOutput(currentFile);
+    }
+}
+
+function updateConsoleDrawerTab(forceOpen) {
+    const tab = document.getElementById('consoleDrawerTab');
+    const panel = document.getElementById('sampleOutputPanel');
+    if (!tab || !panel) return;
+
+    const ex = exerciseData[currentFile];
+    const hasSampleOutput = !!(ex && ex.sampleOutput && ex.sampleOutput.trim().length > 0);
+    const isOpen = forceOpen !== undefined ? forceOpen : panel.classList.contains('open');
+
+    tab.style.display = (hasSampleOutput && !isOpen) ? 'flex' : 'none';
+    tab.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+}
+
+function getCleanSourceUrl() {
+    // Full source URL — host and path — with the query string/hash AND
+    // the protocol stripped off. The protocol isn't needed: results.html
+    // already strips "https://" before displaying it, and every "/" or
+    // ":" left in a URL param gets percent-encoded to 3 characters
+    // (e.g. "/" -> "%2F"), which is the single biggest thing bloating
+    // the QR's data length. Dropping "https://" alone removes 8 raw
+    // characters (and avoids encoding its ":" and "//").
+    return window.location.href.split(/[?#]/)[0].replace(/^https?:\/\//i, '');
+}
+
+function getActivityName() {
+    // The web app's own page title, used as the "activity name" field.
+    return document.title;
+}
+
+// --- QR PAYLOAD ENCRYPTION ---
+// Runs entirely in the browser, so this passphrase is visible to anyone
+// who reads this file — it is NOT a security boundary. It only keeps the
+// score/email/timestamp out of the *plain* QR payload/URL so a casual
+// scan or glance at the address bar doesn't show readable data. This
+// passphrase MUST exactly match the one in results.html.
+const QR_SHARED_PASSPHRASE = 'AA-9002341ds2sd14-dsfs12sd-54231hg';
+const QR_SALT_STRING = 'java-activity-qr-salt-v1';
+
+async function deriveQrKey() {
+    const enc = new TextEncoder();
+    const keyMaterial = await crypto.subtle.importKey(
+        'raw',
+        enc.encode(QR_SHARED_PASSPHRASE),
+        { name: 'PBKDF2' },
+        false,
+        ['deriveKey']
+    );
+    return crypto.subtle.deriveKey(
+        {
+            name: 'PBKDF2',
+            salt: enc.encode(QR_SALT_STRING),
+            iterations: 100000,
+            hash: 'SHA-256'
+        },
+        keyMaterial,
+        { name: 'AES-GCM', length: 256 },
+        false,
+        ['encrypt', 'decrypt']
+    );
+}
+
+function bufferToBase64Url(buffer) {
+    const bytes = new Uint8Array(buffer);
+    let binary = '';
+    bytes.forEach(b => binary += String.fromCharCode(b));
+    return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+async function encryptQrPayload(dataObj) {
+    const key = await deriveQrKey();
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const enc = new TextEncoder();
+    const plaintext = enc.encode(JSON.stringify(dataObj));
+    const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, plaintext);
+
+    // Pack iv + ciphertext into a single token so results.html only needs
+    // one query parameter to decrypt.
+    const combined = new Uint8Array(iv.length + ciphertext.byteLength);
+    combined.set(iv, 0);
+    combined.set(new Uint8Array(ciphertext), iv.length);
+
+    return bufferToBase64Url(combined);
+}
+
+async function buildResultsShareUrl(rawScore, maxScore) {
+    // Keep the ENCRYPTED payload as short as possible: short keys only,
+    // no domain name inside it (see note below on why the domain travels
+    // separately). A shorter encrypted payload lets the QR library pick
+    // a lower "version," meaning fewer total modules (squares) — each
+    // one rendered bigger and easier for a phone camera to resolve.
+    const payload = {
+        e: currentUser,
+        t: Math.floor(Date.now() / 1000), // unix seconds, shorter than ISO string
+        s: rawScore,
+        m: maxScore
+    };
+
+    const token = await encryptQrPayload(payload);
+    const url = new URL('https://mratamayo-tsatinc.github.io/qr/it5b-w4.html');
+    url.searchParams.set('d', token);
+    url.searchParams.set('a', getCleanSourceUrl());
+    url.searchParams.set('n', getActivityName());
+    return url.toString();
+}
+
+function renderResultsQrCode(shareUrl) {
+    // Bigger box for the same module count = each square renders larger
+    // and more visible, on top of the data-shrinking above.
+    renderQrInto('qrCodeBox', shareUrl, 260);
+    renderQrInto('sidebarQrCodeBox', shareUrl, 170);
+}
+
+function renderQrInto(boxId, shareUrl, size) {
+    const box = document.getElementById(boxId);
+    if (!box || typeof QRCode === 'undefined') return;
+    box.innerHTML = ''; // clear any previously rendered code first
+    new QRCode(box, {
+        text: shareUrl,
+        width: size,
+        height: size,
+        colorDark: '#1a1a1a',
+        colorLight: '#ffffff',
+        // L = lowest error correction (~7% recoverable). Combined with a
+        // short payload, this keeps the QR at a low "version" — fewer
+        // total modules (squares), each rendered bigger at the same box
+        // size, which is what actually makes a phone camera able to
+        // resolve it. (More error correction sounds safer but backfires:
+        // it adds redundancy bytes, which forces MORE modules for the
+        // same data, making each one smaller.)
+        correctLevel: QRCode.CorrectLevel.L
+    });
+}
+
+function calculateTotalScore() {
+    let totalGot = 0;
+    let totalPossible = 0;
+    for (const file in exerciseData) {
+        const ex = exerciseData[file];
+        totalGot += Number(ex.score || 0);
+        totalPossible += ex.answers.length;
+    }
+    return { got: totalGot, possible: totalPossible };
+}
+
+async function showScoreSummaryModal(completionMessage, messageType = 'success') {
+    const { got, possible } = calculateTotalScore();
+    
+    document.getElementById('finalScore').textContent = got;
+    document.getElementById('maxScore').textContent = possible;
+    document.getElementById('summaryEmail').textContent = currentUser;
+    
+    const messageElement = document.getElementById('completionMessage');
+    messageElement.textContent = completionMessage;
+    messageElement.className = `completion-message ${messageType}`;
+
+    const shareUrl = await buildResultsShareUrl(got, possible);
+    renderResultsQrCode(shareUrl);
+    
+    document.getElementById('scoreSummaryModal').style.display = 'block';
+    document.getElementById('scoreSummaryOverlay').style.display = 'block';
+}
+
+function closeSummaryModal() {
+    document.getElementById('scoreSummaryModal').style.display = 'none';
+    document.getElementById('scoreSummaryOverlay').style.display = 'none';
+}
+
+// Check if all exercises have been answered
+function checkIfAllAnswered() {
+    for (const file in exerciseData) {
+        const ex = exerciseData[file];
+        if (!ex.locked || ex.score === 0) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/* ============================================================
+   SUBNET VISUALIZER ENGINE — ported from Subnetify (app.js)
+   Wrapped in an IIFE and exposed as window.SubnetVisualizer so its
+   internal names (state, el, render, WEIGHTS, ...) never touch the
+   global scope this file's own quiz-engine code runs in.
+   ============================================================ */
+const SubnetVisualizer = (function () {
 'use strict';
+
+let _initialized = false;
 
 /* ============================================================
    SUBNETIFY — deterministic CIDR / subnetting engine
@@ -927,6 +4151,8 @@ function togglePresenterMode() {
 
 /* ---------------- Init ---------------- */
 function init() {
+  if (_initialized) { render(); return; }
+  _initialized = true;
   el.octetInputs.forEach((inp) => inp.addEventListener('input', onOctetInput));
   document.querySelectorAll('.preset-btn').forEach((btn) => {
     btn.addEventListener('click', () => applyPreset(btn.dataset.preset));
@@ -967,4 +4193,8 @@ function init() {
   render();
 }
 
-document.addEventListener('DOMContentLoaded', init);
+// init() is called by showSubnetVisualizer() in script.js instead of on DOMContentLoaded,
+// since this panel starts hidden and its DOM elements only need to be wired up once, lazily.
+
+  return { init, render };
+})();

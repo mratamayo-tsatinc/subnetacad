@@ -1,284 +1,514 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Subnetify — CIDR &amp; Subnetting Visualizer</title>
-<link rel="stylesheet" href="styles.css">
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" integrity="sha512-SnH5WK+bZxgPHs44uWIX+LLJAJ9/2PkPKZ5QiAj6Ta86w+fsb2TkcmfRyVX3pBnMFcV7oQPJkl9QevSCWr3W6A==" crossorigin="anonymous" referrerpolicy="no-referrer">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Interactive binary and IP address conversion activity for students">
+    <meta name="theme-color" content="#6200ee">
+    <title>Binary &amp; IP Conversion Activity</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&family=Roboto+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+    <link rel="stylesheet" href="style.css">
+     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 </head>
 <body>
 
-  <header class="app-header">
-    <div class="brand">
-      <span class="brand-mark"><i class="fa-solid fa-diagram-project"></i></span>
-      <h1>Subnetify</h1>
-      <span class="brand-sub">CIDR &amp; Subnetting Visualizer</span>
-    </div>
-    <div class="header-actions">
-      <div class="view-mode-global" role="group" aria-label="Global octet display mode">
-        <span class="view-mode-label secondary-copy">Octet Display:</span>
-        <div class="segmented" id="globalViewModeSegmented">
-          <button class="segment-btn active" data-mode="viz" type="button">
-            <i class="fa-solid fa-table-cells"></i> <span>Bit Visualization</span>
-          </button>
-          <button class="segment-btn" data-mode="decimal" type="button">
-            <i class="fa-solid fa-hashtag"></i> <span>Decimal Only</span>
-          </button>
-        </div>
-      </div>
-      <button id="presenterToggle" class="presenter-toggle" type="button"><i class="fa-solid fa-tv"></i> Presenter Mode</button>
-    </div>
-  </header>
-
-  <main class="app-main">
-
-    <!-- ============================================================ -->
-    <!-- PANEL 1 — CONTROL PANEL & IP CLASS AUTO-DETECTION -->
-    <!-- ============================================================ -->
-    <section class="panel" id="panel1">
-      <div class="panel-head">
-        <span class="panel-index">01</span>
-        <h2>Control Panel &amp; IP Class Auto-Detection</h2>
-      </div>
-
-      <div class="panel-body panel1-body">
-        <div class="octet-input-row">
-          <div class="octet-field class-field" id="classFieldWrap">
-            <span class="octet-label">Class</span>
-            <span class="class-value" id="classBadge">C</span>
-          </div>
-          <span class="row-divider" aria-hidden="true">|</span>
-          <label class="octet-field" id="octetField0">
-            <span class="octet-label">Octet 1 <i class="fa-solid fa-lock octet-lock-icon hidden" id="octetLock0" title="Locked by class"></i></span>
-            <input type="number" min="0" max="255" id="octet0" value="192" inputmode="numeric">
-          </label>
-          <span class="dot">.</span>
-          <label class="octet-field" id="octetField1">
-            <span class="octet-label">Octet 2 <i class="fa-solid fa-lock octet-lock-icon hidden" id="octetLock1" title="Locked by class"></i></span>
-            <input type="number" min="0" max="255" id="octet1" value="168" inputmode="numeric">
-          </label>
-          <span class="dot">.</span>
-          <label class="octet-field" id="octetField2">
-            <span class="octet-label">Octet 3 <i class="fa-solid fa-lock octet-lock-icon hidden" id="octetLock2" title="Locked by class"></i></span>
-            <input type="number" min="0" max="255" id="octet2" value="1" inputmode="numeric">
-          </label>
-          <span class="dot">.</span>
-          <label class="octet-field" id="octetField3">
-            <span class="octet-label">Octet 4 <i class="fa-solid fa-lock octet-lock-icon hidden" id="octetLock3" title="Locked by class"></i></span>
-            <input type="number" min="0" max="255" id="octet3" value="0" inputmode="numeric">
-          </label>
-          <span class="decimal-cidr-suffix octet-row-cidr-suffix" id="cidrBadge" title="Classful network boundary — see Panel 2 for the live classless CIDR after borrowing bits">/24</span>
-        </div>
-        <p class="panel-hint secondary-copy octet-lock-hint">Only the octets that make up the classful network portion are editable — the rest stay at 0 and lock automatically as the class changes.</p>
-
-        <div class="presets-row">
-          <span class="presets-label">Presets:</span>
-          <button class="preset-btn preset-a" data-preset="A" type="button">Class A · 10.0.0.0</button>
-          <button class="preset-btn preset-b" data-preset="B" type="button">Class B · 172.16.0.0</button>
-          <button class="preset-btn preset-c" data-preset="C" type="button">Class C · 192.168.1.0</button>
-        </div>
-
-        <div id="warningBanner" class="warning-banner hidden"></div>
-      </div>
-    </section>
-
-    <!-- ============================================================ -->
-    <!-- PANEL 2 — UNIFIED 32-BIT GRID & CIDR CURTAIN -->
-    <!-- ============================================================ -->
-    <section class="panel" id="panel2">
-      <div class="panel-head">
-        <span class="panel-index">02</span>
-        <h2>Unified 32-Bit Grid &amp; the CIDR Curtain</h2>
-        <span class="badge badge-borrow" id="borrowBadgeWrap">
-          <span id="borrowBadge">3 bits borrowed</span>
-          <button id="resetBorrowBtn" class="badge-icon-btn" type="button"
-            title="Reset to classful (0 bits borrowed)" aria-label="Reset borrowed bits to classful (0 bits borrowed)">
-            <i class="fa-solid fa-rotate-left"></i>
-          </button>
-        </span>
-        <label class="panel-view-label">
-          <span class="secondary-copy">Display:</span>
-          <select class="panel-view-select" id="panel2ViewMode" aria-label="Panel 2 display mode">
-            <option value="global">Use Global Setting</option>
-            <option value="viz">Bit Visualization</option>
-            <option value="decimal">Decimal Only</option>
-          </select>
-        </label>
-      </div>
-      <p class="panel-hint secondary-copy" id="panel2Hint">Click any unlocked bit to move the subnet boundary. Blue bits are locked by the IP class, amber bits are borrowed for subnetting, green bits remain for hosts.</p>
-      <div class="panel-body">
-        <div id="bitGrid" class="bit-grid"></div>
-        <div class="legend secondary-copy" id="bitGridLegend">
-          <span><i class="swatch swatch-locked"></i> Locked network bit</span>
-          <span><i class="swatch swatch-borrowed"></i> Borrowed subnet bit</span>
-          <span><i class="swatch swatch-host"></i> Host bit</span>
-        </div>
-      </div>
-    </section>
-
-    <!-- ============================================================ -->
-    <!-- PANEL 3 — SUBNET MASK AND CIDR -->
-    <!-- ============================================================ -->
-    <section class="panel" id="panel3">
-      <div class="panel-head">
-        <span class="panel-index">03</span>
-        <h2>Subnet Mask and CIDR</h2>
-        <label class="panel-view-label">
-          <span class="secondary-copy">Display:</span>
-          <select class="panel-view-select" id="panel3ViewMode" aria-label="Panel 3 display mode">
-            <option value="global">Use Global Setting</option>
-            <option value="viz">Bit Visualization</option>
-            <option value="decimal">Decimal Only</option>
-          </select>
-        </label>
-      </div>
-      <div class="panel-body">
-        <div class="mask-compare">
-          <div class="mask-col">
-            <h3>Classful Mask</h3>
-            <div class="mask-binary" id="classfulMaskBinary"></div>
-            <div class="mask-decimal" id="classfulMaskDecimal"></div>
-          </div>
-          <div class="mask-arrow"><i class="fa-solid fa-arrow-down"></i></div>
-          <div class="mask-col">
-            <h3>Classless Mask</h3>
-            <div class="mask-binary" id="classlessMaskBinary"></div>
-            <div class="mask-decimal" id="classlessMaskDecimal"></div>
-          </div>
-        </div>
-
-        <div class="mask-outputs">
-          <div class="output-chip">
-            <span class="output-label">Dot-decimal</span>
-            <span class="output-value" id="maskDotDecimal">255.255.255.224</span>
-          </div>
-          <div class="output-chip">
-            <span class="output-label">CIDR notation</span>
-            <span class="output-value" id="maskCidr">/27</span>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- ============================================================ -->
-    <!-- PANEL 4 — SUBNET PERMUTATION TABLE -->
-    <!-- ============================================================ -->
-    <section class="panel" id="panel4">
-      <div class="panel-head">
-        <span class="panel-index">04</span>
-        <h2>Subnet Permutation Table</h2>
-        <span class="panel-meta" id="subnetCountMeta"></span>
-        <button id="subnetFormulaToggle" class="formula-toggle-btn" type="button" aria-expanded="false" aria-controls="subnetFormulaBox">
-          <i class="fa-solid fa-square-root-variable"></i> Show Formula
-        </button>
-        <label class="panel-view-label">
-          <span class="secondary-copy">Display:</span>
-          <select class="panel-view-select" id="panel4ViewMode" aria-label="Panel 4 display mode">
-            <option value="global">Use Global Setting</option>
-            <option value="viz">Bit Visualization</option>
-            <option value="decimal">Decimal Only</option>
-          </select>
-        </label>
-      </div>
-      <div class="panel-body">
-        <div id="subnetFormulaBox" class="formula-box formula-box-subnet hidden"></div>
-        <div class="table-scroll">
-          <table class="data-table" id="subnetTable">
-            <thead>
-              <tr>
-                <th>#</th>
-                <th>Subnet Index</th>
-                <th>Octet Bits &amp; Subnet ID (Decimal)</th>
-                <th class="icon-col"><i class="fa-solid fa-magnifying-glass" title="Inspect"></i></th>
-              </tr>
-            </thead>
-            <tbody id="subnetTableBody"></tbody>
-          </table>
-        </div>
-      </div>
-    </section>
-
-    <!-- ============================================================ -->
-    <!-- PANEL 5 — HOST RANGE INSPECTOR -->
-    <!-- ============================================================ -->
-    <section class="panel" id="panel5">
-      <div class="panel-head">
-        <span class="panel-index">05</span>
-        <h2>Host Range Inspector</h2>
-        <span class="panel-meta" id="activeSubnetMeta"></span>
-        <button id="hostFormulaToggle" class="formula-toggle-btn" type="button" aria-expanded="false" aria-controls="hostFormulaBox">
-          <i class="fa-solid fa-square-root-variable"></i> Show Formula
-        </button>
-        <label class="panel-view-label">
-          <span class="secondary-copy">Display:</span>
-          <select class="panel-view-select" id="panel5ViewMode" aria-label="Panel 5 display mode">
-            <option value="global">Use Global Setting</option>
-            <option value="viz">Bit Visualization</option>
-            <option value="decimal">Decimal Only</option>
-          </select>
-        </label>
-      </div>
-      <div class="panel-body">
-        <div id="hostFormulaBox" class="formula-box formula-box-host hidden"></div>
-        <div class="table-scroll">
-          <table class="data-table host-table" id="hostTable">
-            <thead>
-              <tr>
-                <th>#</th>
-                <th class="weights-header">
-                  IP Address — Octet Bits &amp; Decimal
-                  <div class="weights-caption secondary-copy">All 4 Octets — Locked, Borrowed &amp; Host Bits, weights shown per row</div>
-                </th>
-                <th>Role</th>
-              </tr>
-            </thead>
-            <tbody id="hostTableBody"></tbody>
-          </table>
-        </div>
-      </div>
-    </section>
-
-    <!-- ============================================================ -->
-    <!-- PANEL 6 — CLASSFUL VS CLASSLESS COMPARISON -->
-    <!-- ============================================================ -->
-    <section class="panel" id="panel6">
-      <div class="panel-head">
-        <span class="panel-index">06</span>
-        <h2>Classful vs. Classless Comparison</h2>
-      </div>
-      <p class="panel-hint secondary-copy">Plain decimal recap — the original classful network next to every classless subnet it was split into.</p>
-      <div class="panel-body">
-        <div class="compare-groups">
-
-          <div class="compare-group compare-group-classful">
-            <div class="compare-group-head">
-              <i class="fa-solid fa-lock"></i>
-              <h3>Classful (Original)</h3>
+    <!-- Login Overlay -->
+    <div id="loginOverlay" class="login-overlay" role="main" aria-label="Login page">
+        <div class="card login-card">
+            <div class="login-header">
+                <h1>Binary &amp; IP Activity</h1>
+                <button id="settingsBtn" class="settings-icon" onclick="openSettingsModal()" title="Open Settings" aria-label="Settings">⚙️</button>
             </div>
-            <div class="compare-common-stats" id="classfulCompareStats"></div>
-            <div class="compare-cards" id="classfulCompareCards"></div>
-          </div>
-
-          <div class="compare-group compare-group-classless">
-            <div class="compare-group-head">
-              <i class="fa-solid fa-diagram-project"></i>
-              <h3>Classless (Subnetted)</h3>
-            </div>
-            <div class="compare-common-stats" id="classlessCompareStats"></div>
-            <div class="compare-cards" id="classlessCompareCards"></div>
-          </div>
-
+            <p>Convert decimal, binary, and IP/subnet values to complete each question.</p>
+            <form class="input-group" onsubmit="handleLogin(); return false;">
+                <input 
+                    type="email" 
+                    id="emailInput" 
+                    placeholder="School Email" 
+                    required
+                    aria-label="Email address"
+                >
+                <input 
+                    type="text" 
+                    id="studentNumInput" 
+                    placeholder="Student Number" 
+                    required
+                    aria-label="Student number"
+                >
+                <button type="submit" class="primary-btn">Login</button>
+            </form>
+            <p id="loginError" class="error-text" role="alert" aria-live="polite"></p>
         </div>
-      </div>
-    </section>
+    </div>
 
-  </main>
+    <!-- Settings Modal -->
+    <div id="settingsModal" class="modal" style="display: none;" role="dialog" aria-labelledby="settingsTitle" aria-hidden="true">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="settingsTitle">Settings</h2>
+                <button class="modal-close" onclick="closeSettingsModal()" aria-label="Close settings">×</button>
+            </div>
+            <div class="modal-body">
+                <div class="settings-section">
+                    <label class="settings-label">Activity Mode</label>
+                    <div class="mode-options">
+                        <label class="radio-option">
+                            <input type="radio" name="mode" value="practice" checked onchange="handleModeChange()" aria-describedby="practiceDesc">
+                            <span>Practice Mode</span>
+                        </label>
+                        <label class="radio-option">
+                            <input type="radio" name="mode" value="exam" onchange="handleModeChange()" aria-describedby="examDesc">
+                            <span>Exam Mode (Timed)</span>
+                        </label>
+                    </div>
+                </div>
 
-  <footer class="app-footer secondary-copy">
-    Built for classroom demonstration of Classless Inter-Domain Routing — deterministic bit math, no external libraries.
-  </footer>
+                <div class="settings-section" id="practiceSeedSection" style="display: block;">
+                    <label class="settings-label">Practice Question Set</label>
+                    <div class="mode-options">
+                        <label class="radio-option">
+                            <input type="radio" name="practiceSeedMode" value="fixed" checked aria-describedby="practiceSeedHint">
+                            <span>Same set every time (fixed)</span>
+                        </label>
+                        <label class="radio-option">
+                            <input type="radio" name="practiceSeedMode" value="random" aria-describedby="practiceSeedHint">
+                            <span>New random set each session</span>
+                        </label>
+                    </div>
+                    <small class="input-hint" id="practiceSeedHint">Fixed gives every student the same practice questions, useful for walking through them together. Random generates a fresh set each time a student logs in.</small>
+                </div>
 
-<script src="app.js"></script>
+                <div class="settings-section" id="timerSection" style="display: none;">
+                    <label class="settings-label" for="timerInput">Timer (minutes)</label>
+                    <input 
+                        type="number" 
+                        id="timerInput" 
+                        min="1" 
+                        max="999" 
+                        value="15" 
+                        class="timer-input" 
+                        placeholder="Enter minutes" 
+                        oninput="validateTimerInput(this)"
+                        aria-describedby="timerHint"
+                    >
+                    <small class="input-hint" id="timerHint">Enter a number between 1 and 999 minutes</small>
+                </div>
+
+                <div class="settings-section">
+                    <label class="settings-label" for="autoShowSampleToggle">Sample Output</label>
+                    <label class="toggle-control" id="autoShowSampleControl">
+                        <span class="toggle-switch">
+                            <input type="checkbox" id="autoShowSampleToggle" checked>
+                            <span class="toggle-slider" aria-hidden="true"></span>
+                        </span>
+                        <span class="toggle-label">Auto-show console for exercises with sample output</span>
+                    </label>
+                    <small class="input-hint">Applies to every exercise. You can still pull the console into view manually with the tab on the right edge.</small>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="secondary-btn" onclick="closeSettingsModal()">Cancel</button>
+                <button class="primary-btn" onclick="saveSettings()">Save</button>
+            </div>
+        </div>
+    </div>
+    <div id="settingsOverlay" class="modal-overlay" style="display: none;" onclick="closeSettingsModal()" aria-hidden="true"></div>
+
+    <!-- Score Summary Modal -->
+    <div id="scoreSummaryModal" class="modal score-summary-modal" style="display: none;" role="dialog" aria-labelledby="scoreTitle" aria-hidden="true">
+        <div class="modal-content score-summary-content">
+            <div class="score-summary-header">
+                <h2 id="scoreTitle">Session Complete! 🎉</h2>
+            </div>
+            <div class="score-summary-body">
+                <div class="score-display-section">
+                    <div class="score-circle" role="status" aria-live="polite">
+                        <div class="score-number"><span id="finalScore">0</span>/<span id="maxScore">0</span></div>
+                        <div class="score-label">Score</div>
+                    </div>
+                </div>
+                <div class="qr-share-section">
+                    <div id="qrCodeBox" class="qr-code-box" aria-label="QR code linking to a shareable results page"></div>
+                    <p class="qr-caption">Scan to view a shareable results page</p>
+                </div>
+                <div class="student-info-section">
+                    <div class="info-item">
+                        <span class="info-label">Email:</span>
+                        <span id="summaryEmail" class="info-value"></span>
+                    </div>
+                </div>
+                <div id="completionMessage" class="completion-message" role="status"></div>
+            </div>
+            <div class="modal-footer score-summary-footer">
+                <button id="closeSummaryBtn" class="primary-btn" onclick="closeSummaryModal()">Close</button>
+            </div>
+        </div>
+    </div>
+    <div id="scoreSummaryOverlay" class="modal-overlay" style="display: none;" aria-hidden="true"></div>
+
+    <!-- Alert Modal -->
+    <div id="alertModal" class="modal alert-modal" style="display: none;" role="alertdialog" aria-labelledby="alertTitle" aria-hidden="true">
+        <div class="modal-content alert-content">
+            <div class="alert-header">
+                <h3 id="alertTitle">Notice</h3>
+            </div>
+            <div class="alert-body">
+                <p id="alertMessage"></p>
+            </div>
+            <div class="modal-footer alert-footer">
+                <button class="primary-btn" onclick="closeAlertModal()">OK</button>
+            </div>
+        </div>
+    </div>
+    <div id="alertOverlay" class="modal-overlay" style="display: none;" onclick="closeAlertModal()" aria-hidden="true"></div>
+
+    <div id="appContainer" class="main-layout" style="display: none;">
+        <button id="sidebarToggleBtn" class="hamburger-btn" onclick="toggleSidebar()" aria-label="Show exercise list" aria-expanded="false" aria-controls="sidebarNav">
+            <span class="hamburger-icon" aria-hidden="true">☰</span>
+        </button>
+        <div id="sidebarBackdrop" class="sidebar-backdrop" onclick="closeSidebar()" aria-hidden="true"></div>
+
+        <nav id="sidebarNav" class="sidebar" role="navigation" aria-label="Exercise list">
+            <button id="sidebarCloseBtn" class="sidebar-close-btn" onclick="closeSidebar()" aria-label="Close exercise list">×</button>
+            <div class="user-info">
+                <small>Logged in as:</small>
+                <div id="userDisplay" class="user-email-pill" aria-label="Current user"></div>
+                <div id="userTimestamp" class="user-timestamp" aria-label="Current date and time"></div>
+            </div>
+            <hr aria-hidden="true">
+            <div id="summaryPanel" class="summary-panel" role="status" aria-live="polite" aria-label="Total points">
+                <div class="summary-label">Total Points</div>
+                <div id="summaryValue" class="summary-value">0 / 0</div>
+                <div class="qr-share-section qr-share-section--sidebar">
+                    <div id="sidebarQrCodeBox" class="qr-code-box qr-code-box--sidebar" aria-label="QR code linking to a shareable results page"></div>
+                    <p class="qr-caption">Scan for shareable results</p>
+                </div>
+            </div>
+            <h3>Tools</h3>
+            <ul role="list" class="tools-nav-list">
+                <li id="nav-subnetVisualizer" onclick="showSubnetVisualizer()">
+                    <span><i class="fa-solid fa-diagram-project" aria-hidden="true"></i> Subnet Visualizer</span>
+                    <span class="nav-tool-tag">Ungraded</span>
+                </li>
+            </ul>
+            <h3>Exercises</h3>
+            <ul id="fileList" role="list"></ul>
+            <div class="sidebar-bottom">
+                <div style="padding-top: 1rem;">
+                    <button id="downloadBtn" class="secondary-btn" onclick="exportProgress()" aria-label="Download session results">📥 Download Results</button>
+                </div>
+            </div>
+        </nav>
+
+        <main class="content" role="main">
+            <div id="timerContainer" class="timer-container" style="display: none;" role="region" aria-label="Timer" aria-live="polite">
+                <div class="timer-badge">
+                    <span class="timer-label">Time Remaining:</span>
+                    <span id="timerDisplay" class="timer-display">15:00</span>
+                </div>
+            </div>
+
+            <div id="loader" class="loader-container" style="display: none;" role="status" aria-label="Loading exercise">
+                <div class="spinner" aria-hidden="true"></div>
+                <p>Loading exercise...</p>
+            </div>
+
+            <div id="exerciseArea">
+                <div class="card-header">
+                    <h2 id="currentFileName">Select an Exercise</h2>
+                    <p>Enter the correct value for this conversion, then verify your answer.</p>
+                </div>
+                
+                <div class="code-editor" role="region" aria-label="Question display area">
+                    <pre id="codeDisplay"></pre>
+                </div>
+
+                <div class="actions">
+                    <button id="actionButton" class="primary-btn">Verify Answer</button>
+                    <div id="feedback" role="status" aria-live="polite" aria-atomic="true"></div>
+                </div>
+            </div>
+
+            <!-- ============================================================ -->
+            <!-- SUBNET VISUALIZER — ungraded exploration tool (Subnetify)     -->
+            <!-- ============================================================ -->
+            <div id="subnetVisualizerView" class="subnetify-app" style="display:none;">
+
+              <div class="card-header sv-header">
+                <h2><i class="fa-solid fa-diagram-project" aria-hidden="true"></i> Subnet Visualizer</h2>
+                <p>Explore CIDR &amp; subnetting interactively — click any bit to move the subnet boundary. This tool isn't graded.</p>
+              </div>
+
+              <div class="sv-header-actions">
+                <div class="view-mode-global" role="group" aria-label="Global octet display mode">
+                  <span class="view-mode-label secondary-copy">Octet Display:</span>
+                  <div class="segmented" id="globalViewModeSegmented">
+                    <button class="segment-btn active" data-mode="viz" type="button">
+                      <i class="fa-solid fa-table-cells"></i> <span>Bit Visualization</span>
+                    </button>
+                    <button class="segment-btn" data-mode="decimal" type="button">
+                      <i class="fa-solid fa-hashtag"></i> <span>Decimal Only</span>
+                    </button>
+                  </div>
+                </div>
+                <button id="presenterToggle" class="presenter-toggle" type="button"><i class="fa-solid fa-tv"></i> Presenter Mode</button>
+              </div>
+
+              <!-- PANEL 1 — CONTROL PANEL & IP CLASS AUTO-DETECTION -->
+              <section class="panel" id="panel1">
+                <div class="panel-head">
+                  <span class="panel-index">01</span>
+                  <h2>Control Panel &amp; IP Class Auto-Detection</h2>
+                </div>
+                <div class="panel-body panel1-body">
+                  <div class="octet-input-row">
+                    <div class="octet-field class-field" id="classFieldWrap">
+                      <span class="octet-label">Class</span>
+                      <span class="class-value" id="classBadge">C</span>
+                    </div>
+                    <span class="row-divider" aria-hidden="true">|</span>
+                    <label class="octet-field" id="octetField0">
+                      <span class="octet-label">Octet 1 <i class="fa-solid fa-lock octet-lock-icon hidden" id="octetLock0" title="Locked by class"></i></span>
+                      <input type="number" min="0" max="255" id="octet0" value="192" inputmode="numeric">
+                    </label>
+                    <span class="dot">.</span>
+                    <label class="octet-field" id="octetField1">
+                      <span class="octet-label">Octet 2 <i class="fa-solid fa-lock octet-lock-icon hidden" id="octetLock1" title="Locked by class"></i></span>
+                      <input type="number" min="0" max="255" id="octet1" value="168" inputmode="numeric">
+                    </label>
+                    <span class="dot">.</span>
+                    <label class="octet-field" id="octetField2">
+                      <span class="octet-label">Octet 3 <i class="fa-solid fa-lock octet-lock-icon hidden" id="octetLock2" title="Locked by class"></i></span>
+                      <input type="number" min="0" max="255" id="octet2" value="1" inputmode="numeric">
+                    </label>
+                    <span class="dot">.</span>
+                    <label class="octet-field" id="octetField3">
+                      <span class="octet-label">Octet 4 <i class="fa-solid fa-lock octet-lock-icon hidden" id="octetLock3" title="Locked by class"></i></span>
+                      <input type="number" min="0" max="255" id="octet3" value="0" inputmode="numeric">
+                    </label>
+                    <span class="decimal-cidr-suffix octet-row-cidr-suffix" id="cidrBadge" title="Classful network boundary — see Panel 2 for the live classless CIDR after borrowing bits">/24</span>
+                  </div>
+                  <p class="panel-hint secondary-copy octet-lock-hint">Only the octets that make up the classful network portion are editable — the rest stay at 0 and lock automatically as the class changes.</p>
+
+                  <div class="presets-row">
+                    <span class="presets-label">Presets:</span>
+                    <button class="preset-btn preset-a" data-preset="A" type="button">Class A · 10.0.0.0</button>
+                    <button class="preset-btn preset-b" data-preset="B" type="button">Class B · 172.16.0.0</button>
+                    <button class="preset-btn preset-c" data-preset="C" type="button">Class C · 192.168.1.0</button>
+                  </div>
+
+                  <div id="warningBanner" class="warning-banner hidden"></div>
+                </div>
+              </section>
+
+              <!-- PANEL 2 — UNIFIED 32-BIT GRID & CIDR CURTAIN -->
+              <section class="panel" id="panel2">
+                <div class="panel-head">
+                  <span class="panel-index">02</span>
+                  <h2>Unified 32-Bit Grid &amp; the CIDR Curtain</h2>
+                  <span class="badge badge-borrow" id="borrowBadgeWrap">
+                    <span id="borrowBadge">3 bits borrowed</span>
+                    <button id="resetBorrowBtn" class="badge-icon-btn" type="button"
+                      title="Reset to classful (0 bits borrowed)" aria-label="Reset borrowed bits to classful (0 bits borrowed)">
+                      <i class="fa-solid fa-rotate-left"></i>
+                    </button>
+                  </span>
+                  <label class="panel-view-label">
+                    <span class="secondary-copy">Display:</span>
+                    <select class="panel-view-select" id="panel2ViewMode" aria-label="Panel 2 display mode">
+                      <option value="global">Use Global Setting</option>
+                      <option value="viz">Bit Visualization</option>
+                      <option value="decimal">Decimal Only</option>
+                    </select>
+                  </label>
+                </div>
+                <p class="panel-hint secondary-copy" id="panel2Hint">Click any unlocked bit to move the subnet boundary. Blue bits are locked by the IP class, amber bits are borrowed for subnetting, green bits remain for hosts.</p>
+                <div class="panel-body">
+                  <div id="bitGrid" class="bit-grid"></div>
+                  <div class="legend secondary-copy" id="bitGridLegend">
+                    <span><i class="swatch swatch-locked"></i> Locked network bit</span>
+                    <span><i class="swatch swatch-borrowed"></i> Borrowed subnet bit</span>
+                    <span><i class="swatch swatch-host"></i> Host bit</span>
+                  </div>
+                </div>
+              </section>
+
+              <!-- PANEL 3 — SUBNET MASK AND CIDR -->
+              <section class="panel" id="panel3">
+                <div class="panel-head">
+                  <span class="panel-index">03</span>
+                  <h2>Subnet Mask and CIDR</h2>
+                  <label class="panel-view-label">
+                    <span class="secondary-copy">Display:</span>
+                    <select class="panel-view-select" id="panel3ViewMode" aria-label="Panel 3 display mode">
+                      <option value="global">Use Global Setting</option>
+                      <option value="viz">Bit Visualization</option>
+                      <option value="decimal">Decimal Only</option>
+                    </select>
+                  </label>
+                </div>
+                <div class="panel-body">
+                  <div class="mask-compare">
+                    <div class="mask-col">
+                      <h3>Classful Mask</h3>
+                      <div class="mask-binary" id="classfulMaskBinary"></div>
+                      <div class="mask-decimal" id="classfulMaskDecimal"></div>
+                    </div>
+                    <div class="mask-arrow"><i class="fa-solid fa-arrow-down"></i></div>
+                    <div class="mask-col">
+                      <h3>Classless Mask</h3>
+                      <div class="mask-binary" id="classlessMaskBinary"></div>
+                      <div class="mask-decimal" id="classlessMaskDecimal"></div>
+                    </div>
+                  </div>
+
+                  <div class="mask-outputs">
+                    <div class="output-chip">
+                      <span class="output-label">Dot-decimal</span>
+                      <span class="output-value" id="maskDotDecimal">255.255.255.224</span>
+                    </div>
+                    <div class="output-chip">
+                      <span class="output-label">CIDR notation</span>
+                      <span class="output-value" id="maskCidr">/27</span>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <!-- PANEL 4 — SUBNET PERMUTATION TABLE -->
+              <section class="panel" id="panel4">
+                <div class="panel-head">
+                  <span class="panel-index">04</span>
+                  <h2>Subnet Permutation Table</h2>
+                  <span class="panel-meta" id="subnetCountMeta"></span>
+                  <button id="subnetFormulaToggle" class="formula-toggle-btn" type="button" aria-expanded="false" aria-controls="subnetFormulaBox">
+                    <i class="fa-solid fa-square-root-variable"></i> Show Formula
+                  </button>
+                  <label class="panel-view-label">
+                    <span class="secondary-copy">Display:</span>
+                    <select class="panel-view-select" id="panel4ViewMode" aria-label="Panel 4 display mode">
+                      <option value="global">Use Global Setting</option>
+                      <option value="viz">Bit Visualization</option>
+                      <option value="decimal">Decimal Only</option>
+                    </select>
+                  </label>
+                </div>
+                <div class="panel-body">
+                  <div id="subnetFormulaBox" class="formula-box formula-box-subnet hidden"></div>
+                  <div class="table-scroll">
+                    <table class="data-table" id="subnetTable">
+                      <thead>
+                        <tr>
+                          <th>#</th>
+                          <th>Subnet Index</th>
+                          <th>Octet Bits &amp; Subnet ID (Decimal)</th>
+                          <th class="icon-col"><i class="fa-solid fa-magnifying-glass" title="Inspect"></i></th>
+                        </tr>
+                      </thead>
+                      <tbody id="subnetTableBody"></tbody>
+                    </table>
+                  </div>
+                </div>
+              </section>
+
+              <!-- PANEL 5 — HOST RANGE INSPECTOR -->
+              <section class="panel" id="panel5">
+                <div class="panel-head">
+                  <span class="panel-index">05</span>
+                  <h2>Host Range Inspector</h2>
+                  <span class="panel-meta" id="activeSubnetMeta"></span>
+                  <button id="hostFormulaToggle" class="formula-toggle-btn" type="button" aria-expanded="false" aria-controls="hostFormulaBox">
+                    <i class="fa-solid fa-square-root-variable"></i> Show Formula
+                  </button>
+                  <label class="panel-view-label">
+                    <span class="secondary-copy">Display:</span>
+                    <select class="panel-view-select" id="panel5ViewMode" aria-label="Panel 5 display mode">
+                      <option value="global">Use Global Setting</option>
+                      <option value="viz">Bit Visualization</option>
+                      <option value="decimal">Decimal Only</option>
+                    </select>
+                  </label>
+                </div>
+                <div class="panel-body">
+                  <div id="hostFormulaBox" class="formula-box formula-box-host hidden"></div>
+                  <div class="table-scroll">
+                    <table class="data-table host-table" id="hostTable">
+                      <thead>
+                        <tr>
+                          <th>#</th>
+                          <th class="weights-header">
+                            IP Address — Octet Bits &amp; Decimal
+                            <div class="weights-caption secondary-copy">All 4 Octets — Locked, Borrowed &amp; Host Bits, weights shown per row</div>
+                          </th>
+                          <th>Role</th>
+                        </tr>
+                      </thead>
+                      <tbody id="hostTableBody"></tbody>
+                    </table>
+                  </div>
+                </div>
+              </section>
+
+              <!-- PANEL 6 — CLASSFUL VS CLASSLESS COMPARISON -->
+              <section class="panel" id="panel6">
+                <div class="panel-head">
+                  <span class="panel-index">06</span>
+                  <h2>Classful vs. Classless Comparison</h2>
+                </div>
+                <p class="panel-hint secondary-copy">Plain decimal recap — the original classful network next to every classless subnet it was split into.</p>
+                <div class="panel-body">
+                  <div class="compare-groups">
+                    <div class="compare-group compare-group-classful">
+                      <div class="compare-group-head">
+                        <i class="fa-solid fa-lock"></i>
+                        <h3>Classful (Original)</h3>
+                      </div>
+                      <div class="compare-common-stats" id="classfulCompareStats"></div>
+                      <div class="compare-cards" id="classfulCompareCards"></div>
+                    </div>
+                    <div class="compare-group compare-group-classless">
+                      <div class="compare-group-head">
+                        <i class="fa-solid fa-diagram-project"></i>
+                        <h3>Classless (Subnetted)</h3>
+                      </div>
+                      <div class="compare-common-stats" id="classlessCompareStats"></div>
+                      <div class="compare-cards" id="classlessCompareCards"></div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+            </div>
+        </main>
+    </div>
+
+    <!-- Console Drawer Tab: manual per-activity pull, independent of the
+         global auto-show setting. Hidden whenever the current exercise has
+         no sample output, or while the panel is already open. -->
+    <button id="consoleDrawerTab" class="console-drawer-tab" onclick="toggleConsolePanel()" style="display: none;" aria-label="Show sample output" aria-controls="sampleOutputPanel" aria-expanded="false">
+        <i class="fa-solid fa-terminal" aria-hidden="true"></i>
+        <span class="console-drawer-tab-label">Output</span>
+    </button>
+
+    <!-- Sample Output Console Panel (slides in from the right) -->
+    <div id="sampleOutputPanel" class="console-panel" role="dialog" aria-labelledby="sampleOutputTitle" aria-hidden="true">
+        <div class="console-titlebar">
+            <div class="console-traffic-lights" aria-hidden="true">
+                <span class="console-dot dot-red"></span>
+                <span class="console-dot dot-yellow"></span>
+                <span class="console-dot dot-green"></span>
+            </div>
+            <h2 id="sampleOutputTitle" class="console-title">Console Output</h2>
+            <button class="console-close-btn" onclick="closeSampleOutputModal()" aria-label="Close sample output">×</button>
+        </div>
+        <div class="console-body">
+            <pre id="sampleOutputContent" class="console-text"></pre>
+        </div>
+    </div>
+    <div id="sampleOutputOverlay" class="modal-overlay" style="display:none;" onclick="closeSampleOutputModal()" aria-hidden="true"></div>
+    
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+    <script src="script.js"></script>
 </body>
 </html>

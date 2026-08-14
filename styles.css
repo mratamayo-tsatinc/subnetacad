@@ -1,63 +1,2464 @@
+/* --- 1. VARIABLES & RESET --- */
 :root {
-  --bg-primary: #0f172a;
-  --bg-surface: #1e293b;
-  --bg-surface-2: #253247;
-  --border-soft: #32405a;
+    /* Subnetify dark palette — same variable NAMES the rest of this file
+       already uses, so every existing var(--primary) etc. below cascades
+       into the new theme automatically. New Subnetify-native names (used
+       by the ported visualizer panels) are aliased to the same values so
+       both halves of the app draw from one shared source of truth. */
+    --primary: #3b82f6;      /* was Material purple -> Subnetify "locked" blue */
+    --primary-dark: #2563eb;
+    --primary-light: rgba(59, 130, 246, 0.16);
+    --secondary: #10b981;    /* was teal -> Subnetify "host" green */
+    --secondary-light: rgba(16, 185, 129, 0.16);
+    --error: #ef4444;        /* was Material red -> Subnetify "network-id" red */
+    --warning: #f59e0b;      /* Subnetify "borrowed" amber */
+    --success: #10b981;
+    --bg: #0f172a;           /* Subnetify bg-primary */
+    --surface: #1e293b;      /* Subnetify bg-surface */
+    --surface-hover: #253247; /* Subnetify bg-surface-2 */
+    --editor-bg: #0c0f1a;
+    --text-main: #e2e8f0;
+    --text-secondary: #94a3b8;
+    --text-tertiary: #64748b;
+    --border-color: #32405a;
+    --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.35);
+    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.45);
+    --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.55);
+    --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 
-  --text-primary: #e2e8f0;
-  --text-secondary: #94a3b8;
-  --text-dim: #64748b;
+    /* --- Subnetify-native aliases (used by the ported visualizer panels) --- */
+    --bg-primary: var(--bg);
+    --bg-surface: var(--surface);
+    --bg-surface-2: var(--surface-hover);
+    --border-soft: var(--border-color);
+    --text-primary: var(--text-main);
+    --text-dim: var(--text-tertiary);
+    --locked: var(--primary);
+    --locked-soft: var(--primary-light);
+    --borrowed: var(--warning);
+    --borrowed-soft: rgba(245, 158, 11, 0.16);
+    --host: var(--secondary);
+    --host-soft: var(--secondary-light);
+    --network-id: var(--error);
+    --network-id-soft: rgba(239, 68, 68, 0.14);
+    --broadcast: #eab308;
+    --broadcast-soft: rgba(234, 179, 8, 0.16);
+    --font-mono: 'Roboto Mono', 'Fira Code', 'Courier New', monospace;
 
-  --locked: #3b82f6;
-  --locked-soft: rgba(59, 130, 246, 0.16);
-  --borrowed: #f59e0b;
-  --borrowed-soft: rgba(245, 158, 11, 0.16);
-  --host: #10b981;
-  --host-soft: rgba(16, 185, 129, 0.16);
-  --network-id: #ef4444;
-  --network-id-soft: rgba(239, 68, 68, 0.14);
-  --broadcast: #eab308;
-  --broadcast-soft: rgba(234, 179, 8, 0.16);
-
-  --font-ui: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-mono: "JetBrains Mono", "Fira Code", "Courier New", monospace;
-
-  --radius-md: 10px;
-  --radius-sm: 6px;
-
-  /* Fluid gap tokens for the octet/bit rows. Cell WIDTHS are no longer set
-     here — they're computed by flexbox (flex:1) so a row of bits or mask
-     octets always sums to exactly 100% of its container, which is what
-     actually guarantees no horizontal overflow (viewport-unit widths drift
-     out of sync with the container's real width at some breakpoints). */
-  --bit-inner-gap: clamp(2px, 0.5vw, 6px);
-  --octet-gap: clamp(10px, 1.6vw, 22px);
-
-  --mask-inner-gap: clamp(1px, 0.3vw, 3px);
-  --mask-octet-gap: clamp(8px, 1.3vw, 20px);
+    --bit-inner-gap: clamp(2px, 0.5vw, 6px);
+    --octet-gap: clamp(10px, 1.6vw, 22px);
+    --mask-inner-gap: clamp(1px, 0.3vw, 3px);
+    --mask-octet-gap: clamp(8px, 1.3vw, 20px);
 }
 
-* { box-sizing: border-box; }
-
-html, body {
-  margin: 0;
-  padding: 0;
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  font-family: var(--font-ui);
-  /* Safety net: if any child briefly forces a wider layout (e.g. a
-     nowrap control on a narrow emulated device), clip it horizontally
-     instead of letting it widen the whole document — which is what was
-     causing .app-main's `margin: 0 auto` to center against a wider,
-     invisible canvas and look "shifted left" in DevTools device mode. */
-  overflow-x: hidden;
+body, html {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    font-family: 'Roboto', sans-serif;
+    background-color: var(--bg);
+    color: var(--text-main);
+    scroll-behavior: smooth;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
 }
 
-body {
-  min-height: 100vh;
-  padding-bottom: 40px;
+/* --- HAMBURGER MENU / OFF-CANVAS SIDEBAR (mobile overlay + desktop collapse) --- */
+.hamburger-btn {
+    display: flex; /* now shown at every breakpoint — collapses sidebar on desktop, opens the overlay on mobile */
+    position: fixed;
+    top: 1rem;
+    left: 1rem;
+    z-index: 1100;
+    width: 44px;
+    height: 44px;
+    border: none;
+    border-radius: 8px;
+    background: var(--surface);
+    color: var(--primary);
+    box-shadow: var(--shadow-md);
+    font-size: 1.4rem;
+    cursor: pointer;
+    align-items: center;
+    justify-content: center;
+    transition: var(--transition);
 }
 
+.hamburger-btn:hover {
+    background: var(--primary-light);
+}
+
+.sidebar-close-btn {
+    display: none; /* shown only in the mobile media query below, inside the panel */
+    position: absolute;
+    top: 0.75rem;
+    right: 0.75rem;
+    width: 36px;
+    height: 36px;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 1.6rem;
+    cursor: pointer;
+    border-radius: 6px;
+    align-items: center;
+    justify-content: center;
+}
+
+.sidebar-close-btn:hover {
+    background: var(--surface-hover);
+    color: var(--primary);
+}
+
+.sidebar-backdrop {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.45);
+    z-index: 1150;
+}
+
+.sidebar-backdrop.show {
+    display: block;
+}
+
+/* --- 2. LOGIN OVERLAY (Full Screen) --- */
+.login-overlay {
+    position: fixed;
+    inset: 0;
+    background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+    animation: fadeIn 0.4s ease-in-out;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+
+.login-card {
+    width: 100%;
+    max-width: 420px;
+    padding: 3rem 2.5rem;
+    background: var(--surface);
+    border-radius: 16px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+    text-align: center;
+    backdrop-filter: blur(10px);
+    animation: slideUp 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes slideUp {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.login-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.5rem;
+}
+
+.login-card h1,
+.login-card h2 {
+    margin: 0 0 0.5rem 0;
+    color: var(--primary);
+    font-weight: 600;
+    font-size: clamp(1.3rem, 5vw, 1.8rem);
+    letter-spacing: -0.5px;
+}
+
+.login-card p {
+    color: var(--text-secondary);
+    font-size: clamp(0.85rem, 2.4vw, 0.95rem);
+    line-height: 1.6;
+    margin: 1rem 0 2rem 0;
+}
+
+.settings-icon {
+    background: none;
+    border: none;
+    font-size: 1.5rem;
+    cursor: pointer;
+    padding: 8px 12px;
+    transition: var(--transition);
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.settings-icon:hover {
+    transform: rotate(25deg);
+    background: rgba(59, 130, 246, 0.08);
+}
+
+.input-group {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    margin: 2rem 0;
+}
+
+/* Input field styling */
+.login-card input {
+    padding: 12px 16px;
+    border: 2px solid var(--border-color);
+    border-radius: 8px;
+    font-size: 1rem;
+    width: 100%;
+    box-sizing: border-box;
+    transition: var(--transition);
+    background: var(--surface);
+    color: var(--text-main);
+}
+
+.login-card input::placeholder {
+    color: var(--text-tertiary);
+}
+
+.login-card input:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+    background: var(--surface-hover);
+}
+
+/* --- 3. MAIN APP LAYOUT --- */
+.main-layout {
+    display: flex;
+    height: 100vh;
+    animation: fadeIn 0.3s ease-in-out;
+}
+
+/* Sidebar */
+.sidebar {
+    width: 280px;
+    background: var(--surface);
+    border-right: 1px solid var(--border-color);
+    display: flex;
+    flex-direction: column;
+    padding: 1.5rem;
+    overflow-y: auto;
+    box-shadow: var(--shadow-sm);
+}
+
+/* Desktop: the sidebar is a normal in-layout panel (visible by default),
+   so collapsing it means shrinking it to nothing rather than sliding it
+   off-canvas like the mobile overlay does. The .content area is a flex
+   sibling, so it reflows to fill the freed space automatically as this
+   transitions. */
+@media (min-width: 769px) {
+    .sidebar {
+        padding-top: 4.5rem; /* clears the fixed hamburger button, always visible now */
+        overflow-x: hidden;
+        transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+                    padding 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+                    opacity 0.2s ease;
+    }
+
+    .sidebar.sidebar-collapsed {
+        width: 0;
+        min-width: 0;
+        padding: 4.5rem 0 1.5rem 0;
+        border-right: none;
+        opacity: 0;
+    }
+
+    /* Content shifts flush to the left edge once the sidebar collapses,
+       right under the fixed hamburger button — give it clearance there. */
+    .sidebar.sidebar-collapsed + .content {
+        padding-top: 4.5rem;
+    }
+}
+
+.user-info {
+    padding-bottom: 1rem;
+    border-bottom: 2px solid var(--border-color);
+    margin-bottom: 1rem;
+}
+
+.user-info small {
+    color: var(--text-tertiary);
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    display: block;
+    margin-bottom: 0.5rem;
+}
+
+/* The email is the primary identity marker in the sidebar, so it's called
+   out as a solid pill badge — bold, colored, and visually the heaviest
+   element in this block. (Previously a bare ".user-info div" rule was
+   selecting every div in here, including the timestamp's — because that
+   descendant selector out-specifies a single class selector, it was
+   quietly overriding the timestamp's own styling too. Scoping this to a
+   dedicated class avoids that clash entirely.) */
+.user-email-pill {
+    display: inline-block;
+    max-width: 100%;
+    padding: 5px 14px;
+    border-radius: 999px;
+    background: linear-gradient(135deg, var(--primary), #2563eb);
+    color: #1e293b;
+    font-weight: 700;
+    font-size: 0.8rem;
+    letter-spacing: 0.2px;
+    word-break: break-word;
+    box-shadow: 0 2px 8px rgba(59, 130, 246, 0.28);
+}
+
+/* Live day/date/time readout under the user's email — deliberately quieter
+   than the email pill above (smaller, unbolded, muted color) so it reads
+   as secondary, supporting information rather than competing with it. */
+.user-timestamp {
+    margin-top: 0.55rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+}
+
+.timestamp-date {
+    font-family: 'Roboto Mono', monospace;
+    font-size: 0.68rem;
+    font-weight: 400;
+    color: var(--text-tertiary);
+    letter-spacing: 0.2px;
+    /* Free to wrap onto a second line on narrow sidebars — only the time
+       below needs to stay glued together as one unit. */
+    white-space: normal;
+}
+
+.timestamp-time {
+    display: flex;
+    align-items: baseline;
+    gap: 0.3rem;
+    font-family: 'Roboto Mono', monospace;
+    font-size: 0.78rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+    letter-spacing: 0.2px;
+    /* Keep "HH:MM:SS AM/PM" together as a single unbreakable unit so the
+       AM/PM marker can never wrap away onto its own line, separated from
+       the time it belongs to. */
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.timestamp-seconds {
+    display: inline-block;
+    color: var(--primary);
+    font-weight: 600;
+}
+
+/* Re-triggered every tick from script.js so the seconds visibly "pulse"
+   each time they update, giving the clock a live, running feel. */
+.timestamp-seconds.tick {
+    animation: timestampPulse 1s ease-out;
+}
+
+@keyframes timestampPulse {
+    0% { opacity: 0.45; transform: scale(0.9); }
+    35% { opacity: 1; transform: scale(1.1); }
+    100% { opacity: 1; transform: scale(1); }
+}
+
+.sidebar h3 {
+    font-size: 0.75rem;
+    color: var(--text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    margin: 1.5rem 0 0.8rem 0;
+    font-weight: 700;
+}
+
+.sidebar ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    flex: 1;
+}
+
+.sidebar li {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem 1rem;
+    margin: 0.4rem 0;
+    cursor: pointer;
+    border-radius: 8px;
+    font-size: clamp(0.82rem, 2.2vw, 0.9rem);
+    font-weight: 500;
+    transition: var(--transition);
+    position: relative;
+    color: var(--text-main);
+    overflow: hidden;
+}
+
+.sidebar li::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 3px;
+    background: var(--primary);
+    transform: scaleY(0);
+    transition: transform 0.2s ease;
+}
+
+.sidebar li:hover { 
+    background: var(--surface-hover);
+}
+
+/* Phase header — a non-interactive grouping label inside the exercise
+   list (e.g. "Phase 1"), distinct from the clickable question items
+   below it: no hover/pointer, no active-indicator bar, smaller/quieter
+   text, and a bit of top spacing to visually separate phase groups. */
+.sidebar li.sidebar-phase-header {
+    cursor: default;
+    padding: 0.4rem 0.6rem 0.3rem;
+    margin: 1rem 0 0.2rem 0;
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1.2px;
+    color: var(--text-tertiary);
+    background: transparent;
+    justify-content: flex-start;
+}
+
+.sidebar li.sidebar-phase-header:first-child {
+    margin-top: 0;
+}
+
+.sidebar li.sidebar-phase-header:hover {
+    background: transparent;
+}
+
+.sidebar li.sidebar-phase-header::before {
+    display: none;
+}
+
+.sidebar li.active {
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.08), rgba(16, 185, 129, 0.08));
+    color: var(--primary);
+    font-weight: 600;
+}
+
+.sidebar li.active::before {
+    transform: scaleY(1);
+}
+
+/* Main Content Area */
+.content {
+    flex: 1;
+    padding: 2rem;
+    overflow-y: auto;
+    background: linear-gradient(to bottom, var(--bg), var(--surface));
+}
+
+/* --- 4. THE CODE EDITOR (Interactive Part) --- */
+.code-editor {
+    background: linear-gradient(135deg, #263238, #37474f);
+    color: #eceff1;
+    padding: 2rem;
+    border-radius: 12px;
+    font-family: 'Roboto Mono', monospace;
+    font-size: clamp(0.85rem, 2.3vw, 1.1rem);
+    line-height: 1.8;
+    margin: 1.5rem 0;
+    box-shadow: inset 0 2px 10px rgba(0,0,0,0.3);
+    overflow-x: auto;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+/* RESET: Only applies to inputs inside the editor */
+.code-editor .code-input {
+    background: rgba(255, 255, 255, 0.08);
+    border: none;
+    border-bottom: 2px solid var(--secondary);
+    color: #ffca28;
+    
+    font-family: 'Roboto Mono', monospace;
+    font-size: 1em;
+    
+    padding: 0 4px;
+    margin: 0 2px;
+    height: auto;
+    vertical-align: baseline;
+    outline: none;
+    transition: var(--transition);
+    border-radius: 2px;
+}
+
+.code-editor .code-input:focus {
+    background: rgba(255, 255, 255, 0.12);
+    border-bottom-color: #1e293b;
+    box-shadow: 0 0 8px rgba(255, 202, 40, 0.3);
+}
+
+.card-header {
+    margin-bottom: 2rem;
+    animation: fadeIn 0.4s ease-out;
+}
+
+.card-header h2 {
+    margin: 0 0 0.5rem 0;
+    color: var(--primary);
+    font-size: clamp(1.25rem, 4.5vw, 1.8rem);
+    font-weight: 700;
+}
+
+.card-header p {
+    color: var(--text-secondary);
+    font-size: clamp(0.85rem, 2.4vw, 0.95rem);
+    margin: 0;
+    line-height: 1.5;
+}
+
+.actions {
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+    flex-wrap: wrap;
+    margin-top: 1.5rem;
+}
+
+/* --- 5. BUTTONS & FEEDBACK --- */
+.primary-btn {
+    background: linear-gradient(135deg, var(--primary), #2563eb);
+    color: white;
+    border: none;
+    padding: 12px 28px;
+    border-radius: 8px;
+    font-size: clamp(0.82rem, 2.3vw, 0.95rem);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    cursor: pointer;
+    box-shadow: var(--shadow-md);
+    transition: var(--transition);
+    position: relative;
+    overflow: hidden;
+}
+
+.primary-btn::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 0;
+    height: 0;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.1);
+    transform: translate(-50%, -50%);
+    transition: width 0.6s, height 0.6s;
+}
+
+.primary-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 20px rgba(59, 130, 246, 0.3);
+}
+
+.primary-btn:hover::before {
+    width: 300px;
+    height: 300px;
+}
+
+.primary-btn:active {
+    transform: translateY(0);
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.2);
+}
+
+.primary-btn:disabled {
+    background: #475569;
+    cursor: not-allowed;
+    box-shadow: none;
+    transform: none;
+}
+
+.secondary-btn {
+    background: transparent;
+    border: 2px solid var(--primary);
+    color: var(--primary);
+    padding: 10px 24px;
+    border-radius: 8px;
+    cursor: pointer;
+    text-transform: uppercase;
+    font-weight: 600;
+    font-size: clamp(0.78rem, 2.2vw, 0.9rem);
+    letter-spacing: 0.5px;
+    transition: var(--transition);
+    position: relative;
+}
+
+.secondary-btn:hover {
+    background: var(--primary-light);
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-md);
+}
+
+.secondary-btn:active {
+    transform: translateY(0);
+}
+
+#feedback {
+    margin-top: 1rem;
+    font-weight: 600;
+    min-height: 1.2rem;
+    padding: 0.8rem;
+    border-radius: 8px;
+    display: none;
+    animation: slideIn 0.3s ease-out;
+}
+
+#feedback.show {
+    display: block;
+}
+
+#feedback.success {
+    background: rgba(76, 175, 80, 0.1);
+    color: var(--success);
+    border-left: 4px solid var(--success);
+}
+
+#feedback.error {
+    background: rgba(176, 0, 32, 0.1);
+    color: var(--error);
+    border-left: 4px solid var(--error);
+}
+
+#feedback.warning {
+    background: rgba(255, 152, 0, 0.1);
+    color: var(--warning);
+    border-left: 4px solid var(--warning);
+}
+
+@keyframes slideIn {
+    from {
+        opacity: 0;
+        transform: translateX(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+/* Sidebar bottom summary panel */
+.summary-panel {
+    background: linear-gradient(135deg, var(--primary-light), var(--secondary-light));
+    border: 2px solid var(--border-color);
+    padding: 1rem;
+    border-radius: 10px;
+    text-align: center;
+    box-shadow: var(--shadow-sm);
+    transition: var(--transition);
+}
+
+.summary-panel:hover {
+    box-shadow: var(--shadow-md);
+    transform: translateY(-2px);
+}
+
+/* Locked inputs and editor cursor state */
+.code-input.locked {
+    cursor: not-allowed;
+}
+
+.code-editor.locked {
+    cursor: not-allowed;
+}
+
+.summary-label {
+    font-size: 0.75rem;
+    color: var(--text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-weight: 700;
+}
+
+.summary-value {
+    font-family: 'Roboto Mono', monospace;
+    font-size: 1.4rem;
+    font-weight: 700;
+    margin-top: 0.5rem;
+    background: linear-gradient(135deg, var(--primary), var(--secondary));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+.sidebar-bottom {
+    margin-top: auto;
+    padding-top: 1.5rem;
+    border-top: 2px solid var(--border-color);
+}
+
+/* Loading Spinner */
+.loader-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 200px;
+    gap: 1rem;
+}
+
+.spinner {
+    width: 60px;
+    height: 60px;
+    border: 4px solid rgba(59, 130, 246, 0.1);
+    border-top: 4px solid var(--primary);
+    border-right: 4px solid var(--secondary);
+    border-radius: 50%;
+    animation: spin 1.2s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+.loader-container p {
+    color: var(--text-secondary);
+    font-weight: 500;
+    margin: 0;
+}
+
+.error-text {
+    color: var(--error);
+    font-size: 0.85rem;
+    margin-top: 8px;
+    animation: slideIn 0.3s ease-out;
+}
+
+/* --- RESPONSIVE DESIGN --- */
+@media (max-width: 768px) {
+    .main-layout {
+        flex-direction: column;
+    }
+
+    /* Off-canvas sidebar: hidden off the left edge by default, slides in
+       as a full-height overlay when toggled open via the hamburger button.
+       Replaces the old horizontal-scrolling-strip layout, which ate
+       vertical space that the coding activity needs on small screens. */
+    .sidebar {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 82%;
+        max-width: 320px;
+        height: 100vh;
+        border-right: none;
+        border-bottom: none;
+        padding: 1.5rem;
+        max-height: none;
+        overflow-x: visible;
+        overflow-y: auto;
+        z-index: 1200;
+        box-shadow: var(--shadow-lg);
+        transform: translateX(-100%);
+        transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .sidebar.sidebar-open {
+        transform: translateX(0);
+    }
+
+    .sidebar ul {
+        display: block;
+        overflow-x: visible;
+    }
+
+    .sidebar li {
+        white-space: normal;
+        flex-shrink: initial;
+    }
+
+    .hamburger-btn {
+        display: flex;
+    }
+
+    .sidebar-close-btn {
+        display: flex;
+    }
+
+    /* Room so page content doesn't sit under the fixed hamburger button */
+    .content {
+        padding: 4.5rem 1rem 1rem 1rem;
+    }
+    
+    .login-card {
+        max-width: 90%;
+        padding: 2rem 1.5rem;
+    }
+    
+    .modal {
+        min-width: 85vw;
+        max-width: 90vw;
+    }
+
+    /* These modals set their own min-width later in the file with equal
+       specificity, so they were winning over the rule above and overflowing
+       narrow screens. Re-assert the mobile sizing here. */
+    .score-summary-modal,
+    .alert-modal {
+        min-width: 85vw;
+        max-width: 90vw;
+        width: 90vw;
+    }
+    
+    .score-circle {
+        width: 160px;
+        height: 160px;
+    }
+    
+    .score-number {
+        font-size: 2.2rem;
+    }
+    
+    .code-ordering-area {
+        border-radius: 0;
+    }
+
+    /* --- Item 3 (revised): rows no longer grow/wrap for long code lines.
+       Each row stays a single fixed-height line and scrolls horizontally
+       (see base .draggable-line overflow-x: auto) so the "one line per
+       line of code" layout of the activity is preserved even when a line
+       is too long for the screen. --- */
+    .draggable-line {
+        height: 3.25rem;
+        align-items: center;
+        gap: 0.4rem;
+        padding: 0.5rem 0.6rem;
+    }
+
+    .line-number {
+        height: 3.25rem;
+        line-height: 3.25rem;
+        min-width: 1.5rem;
+        padding-right: 0.3rem;
+    }
+
+    .line-numbers-column {
+        min-width: 1.5rem;
+    }
+
+    /* Up/down buttons stacked vertically instead of side-by-side reclaim
+       roughly 40px of row width on narrow screens, leaving more room for
+       the code itself before it needs to scroll. */
+    .updown-buttons {
+        flex-direction: column;
+        gap: 2px;
+    }
+
+    .updown-buttons button {
+        width: 26px;
+        height: 22px;
+        font-size: 0.65rem;
+    }
+
+    .modal-close {
+        font-size: 2rem;
+        padding: 8px 12px;
+        min-width: 44px;
+        min-height: 44px;
+    }
+
+    .settings-icon {
+        min-width: 44px;
+        min-height: 44px;
+    }
+
+    /* --- Item 4: tighter code editor on phones --- */
+    .code-editor {
+        margin: 0;
+        padding: 0;
+        font-size: 0.95rem;
+        line-height: 1.6;
+    }
+
+    .card-header h2 {
+        font-size: 1.4rem;
+    }
+
+    .actions {
+        gap: 0.6rem;
+    }
+}
+
+@media (max-width: 480px) {
+    .sidebar-bottom {
+        margin-top: 1rem;
+    }
+    
+    .login-card {
+        border-radius: 0;
+    }
+    
+    .modal {
+        border-radius: 8px 8px 0 0;
+    }
+    
+    .timer-badge {
+        padding: 0.8rem 1rem;
+        gap: 0.6rem;
+    }
+    
+    .timer-label {
+        font-size: 0.8rem;
+    }
+    
+    .timer-display {
+        font-size: 1.2rem;
+    }
+}
+
+/* --- 3.5 BINARY / IP CONVERSION QUESTION STYLES --- */
+/* Rendered inside .code-editor (dark panel), so text/inputs use light
+   colors consistent with that panel rather than the app's light theme. */
+.conversion-question {
+    padding: 0.5rem 0.25rem 1rem;
+}
+
+.conversion-prompt {
+    font-size: clamp(0.95rem, 2.4vw, 1.1rem);
+    color: #eceff1;
+    line-height: 1.7;
+    margin-bottom: 1.5rem;
+}
+
+.conversion-prompt b {
+    color: #ffca28;
+    font-family: 'Roboto Mono', monospace;
+    font-weight: 700;
+}
+
+.conversion-answer-row {
+    display: flex;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+/* Phase 2 (b2d) only: the "Given" label sits above its bit grid, making
+   that column taller than the bare "=" sign and decimal input next to it.
+   Bottom-aligning the row (instead of the default center) keeps the
+   bit-box row and the decimal field on the same baseline regardless of
+   the label's height above. */
+.conversion-answer-row.answer-row-bottom-align {
+    align-items: flex-end;
+}
+
+/* .conversion-equals sits directly on that shared baseline (see above),
+   so it's nudged up slightly here to optically center on the bit boxes'
+   digits rather than sitting flush with their bottom edge. */
+.conversion-answer-row.answer-row-bottom-align .conversion-equals {
+    margin-bottom: 10px;
+}
+
+.conversion-answer-row.answer-row-bottom-align .answer-input-num {
+    margin-bottom: 1px;
+}
+
+.bitgroup {
+    display: flex;
+    gap: 5px;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+.bitbox {
+    width: 38px;
+    height: 44px;
+    text-align: center;
+    font-family: 'Roboto Mono', monospace;
+    font-size: 1.1rem;
+    font-weight: 600;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.06);
+    color: #eceff1;
+    transition: var(--transition);
+}
+
+.bitbox:focus {
+    outline: none;
+    border-color: var(--secondary);
+    box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.25);
+}
+
+.bitbox.on {
+    background: rgba(16, 185, 129, 0.16);
+    color: var(--secondary);
+    border-color: var(--secondary);
+}
+
+.bitbox.off {
+    background: rgba(255, 255, 255, 0.04);
+    color: #64748b;
+}
+
+/* --- PHASE 2: READ-ONLY "GIVEN" BIT GRID ---
+   Phase 2 (Binary → Decimal) shows its given binary value using the same
+   bitgroup/bitbox markup as Phase 1's editable grid, but purely for
+   display — nothing here is meant to be typed into. Reuses .bitbox.on/
+   .off as-is (so a "1" and a "0" bit still read as visually distinct, same
+   as everywhere else in the app) and layers .readonly-bitbox on top just
+   to strip the interactive affordances: no focus ring (there's nothing to
+   focus toward), a "not-editable" cursor, and a touch of transparency so
+   it doesn't compete with the actual answer field for attention. */
+.bitbox.readonly-bitbox {
+    cursor: default;
+    opacity: 0.92;
+}
+
+.bitbox.readonly-bitbox:focus {
+    outline: none;
+    border-color: rgba(255, 255, 255, 0.15);
+    box-shadow: none;
+}
+
+.bitbox.readonly-bitbox.on:focus {
+    border-color: var(--secondary);
+}
+
+.bitgroup-readonly {
+    gap: 4px;
+}
+
+/* Wraps the "Given" caption above Phase 2's read-only grid and the "="
+   sign that visually connects it to the decimal answer field beside it —
+   framing the layout as "this known value equals ___" rather than a bare
+   grid floating next to an unrelated input. */
+.b2d-given-wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+}
+
+.b2d-given-label {
+    font-size: 0.62rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #64748b;
+}
+
+.conversion-equals {
+    font-family: 'Roboto Mono', monospace;
+    font-size: 1.4rem;
+    font-weight: 700;
+    color: #64748b;
+    padding: 0 0.1rem;
+}
+
+/* --- OCTET BIT GRID PLACE-VALUE LABELS (Phase 3 & Phase 6) ---
+   Sits directly above each bit box in the expandable octet grid, showing
+   that bit's decimal place value (128, 64, 32, 16, 8, 4, 2, 1). Muted by
+   default; switches to "active" — deliberately reusing .bitbox.on's own
+   teal — the instant that bit is set to 1, so the same color means "this
+   bit/place value is contributing" in both the box and its label. Seeing
+   only the active labels lit up as bits are typed makes the
+   decimal-equals-sum-of-active-place-values relationship visible in the
+   moment, rather than something to work out afterward. */
+.octet-bit-col {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+}
+
+.bit-place-value {
+    font-family: 'Roboto Mono', monospace;
+    font-size: 0.62rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    line-height: 1;
+    transition: var(--transition);
+    user-select: none;
+}
+
+.bit-place-value.muted {
+    color: #94a3b8;
+    opacity: 0.65;
+}
+
+.bit-place-value.active {
+    color: var(--secondary);
+    opacity: 1;
+    text-shadow: 0 0 6px rgba(16, 185, 129, 0.45);
+}
+
+/* --- EXAM MODE: HIDE BIT PLACE-VALUE LABELS ---
+   The 128/64/32/.../1 label above each bit box effectively hands the
+   student the exact place value to add up — appropriate as a learning aid
+   in Practice Mode, but a giveaway during a timed Exam Mode assessment.
+   Toggled via a single body-level class (see loadAllExercises in
+   script.js) so it applies to every bit grid — Phase 1, Phase 2's
+   read-only "given" grid, and the Phase 3/6 octet grids — without needing
+   per-grid changes. `visibility: hidden` (not `display: none`) keeps each
+   label's layout space reserved, so the bit boxes underneath sit at the
+   exact same position in both modes rather than shifting upward once the
+   labels above them disappear. */
+body.exam-mode .bit-place-value {
+    visibility: hidden;
+}
+
+.answer-input-num {
+    width: 140px;
+    padding: 10px 14px;
+    font-family: 'Roboto Mono', monospace;
+    font-size: 1.05rem;
+    text-align: center;
+    border-radius: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    background: rgba(255, 255, 255, 0.06);
+    color: #eceff1;
+    transition: var(--transition);
+}
+
+.ip-octet-bin,
+.ip-octet-dec {
+    padding: 9px 8px;
+    font-family: 'Roboto Mono', monospace;
+    font-size: 0.95rem;
+    text-align: center;
+    border-radius: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    background: rgba(255, 255, 255, 0.06);
+    color: #eceff1;
+    transition: var(--transition);
+}
+
+.ip-octet-bin { width: 88px; }
+.ip-octet-dec { width: 60px; }
+
+.answer-input-num:focus,
+.ip-octet-bin:focus,
+.ip-octet-dec:focus {
+    outline: none;
+    border-color: var(--secondary);
+    box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.25);
+}
+
+.bitbox.locked,
+.answer-input-num.locked,
+.ip-octet-bin.locked,
+.ip-octet-dec.locked {
+    cursor: not-allowed;
+    opacity: 0.55;
+}
+
+.octet-dot {
+    color: #64748b;
+    font-family: 'Roboto Mono', monospace;
+    font-size: 1.3rem;
+    padding: 0 2px;
+}
+
+/* --- PHASE 3 & PHASE 6: EXPAND-ON-FOCUS OCTET INPUT ---
+   The bit-grid "card" is a floating popover, positioned via JS to sit just
+   under its compact field, rather than expanding inline in the same flex
+   row as the other octets/dots. That's what makes the swap feel
+   "disconnected": an inline element popping from display:none to
+   display:inline-flex instantly claims layout space, which shoves every
+   sibling octet sideways the moment it appears — a hard snap that no
+   opacity/scale transition layered on top of it can hide.
+
+   It uses `position: fixed` (viewport-relative, coordinates set in JS —
+   see positionOctetCard in script.js) rather than `position: absolute`
+   relative to its wrapper. Absolute positioning was tried first, but
+   .code-editor sets `overflow-x: auto` without an explicit overflow-y —
+   per spec that silently forces overflow-y to compute as 'auto' too,
+   turning .code-editor into a clipping/scrolling container that cut the
+   popover off the moment it tried to extend below its field. `position:
+   fixed` escapes that entirely: no ancestor here creates a transform/
+   filter/perspective context, so it anchors to the viewport and is never
+   clipped by any container's overflow, regardless of how deep it's
+   nested.
+
+   Visibility and opacity/transform are driven together via a single
+   ".expanded" class toggle in JS (rather than JS-timed display swaps), so
+   the crossfade is one continuous, declarative CSS transition instead of
+   two separately-timed animations racing each other. The `visibility`
+   transition uses a delay so the popover stays hit-testable/focusable
+   for its full fade-in, but drops out of the tab order only once its
+   fade-out has actually finished. */
+.octet-expand-wrapper {
+    position: relative;
+    display: inline-block;
+    vertical-align: middle;
+}
+
+.ip-octet-collapsed {
+    transition: opacity 200ms ease;
+}
+
+.ip-octet-collapsed.field-hidden {
+    /* Deliberately NOT visibility: hidden here — this field can still be
+       the focused element at the exact moment it gets this class (see
+       handleOctetFocusIn in script.js), and a visibility change on a
+       still-focused element risks the browser force-blurring it
+       immediately, ahead of our own code's plans. opacity + pointer-events
+       are enough to block interaction without touching focusability at
+       all; JS manages tabIndex separately so it still drops out of
+       Tab-key order while hidden.
+
+       Kept VISIBLE (not opacity: 0) and instead styled the same way other
+       locked inputs in this app already look (compare .bitbox.locked etc:
+       opacity 0.55). Fully hiding this field during expansion severed the
+       implied link between it and its own bit-grid card floating below —
+       the card would appear to belong to nothing. Muting it in place, with
+       its border tinted to the card's own accent color, keeps that pairing
+       legible throughout the transition instead of only before/after it. */
+    opacity: 0.55;
+    pointer-events: none;
+    cursor: not-allowed;
+    background: rgba(92, 107, 192, 0.1);
+    border-bottom-color: #5C6BC0;
+    color: #93c5fd;
+}
+
+/* Thin connector "tail" bridging the muted compact field down to its open
+   card — a small but deliberate visual cue that the two are one and the
+   same octet, not two unrelated elements that happen to be near each
+   other. Only rendered while that specific octet's card is expanded
+   (:has() scopes this to the active wrapper only), and purely decorative
+   (no pointer-events, no layout impact on anything else). */
+.octet-expand-wrapper:has(.octet-bitgroup.expanded) {
+    position: relative;
+}
+
+.octet-expand-wrapper:has(.octet-bitgroup.expanded)::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    bottom: -9px;
+    transform: translateX(-50%);
+    width: 2px;
+    height: 9px;
+    background: #5C6BC0;
+    opacity: 0.55;
+    pointer-events: none;
+}
+
+.octet-bitgroup {
+    position: fixed;
+    z-index: 30;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transform-origin: top left;
+    transform: scale(0.92) translateY(-6px);
+    transition: opacity 200ms ease, transform 200ms ease, visibility 0s linear 200ms;
+}
+
+.octet-bitgroup.expanded {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    transform: scale(1) translateY(0);
+    transition: opacity 200ms ease, transform 200ms ease, visibility 0s linear 0s;
+}
+
+.conversion-question.correct {
+    box-shadow: inset 4px 0 0 var(--success);
+}
+
+.conversion-question.incorrect {
+    box-shadow: inset 4px 0 0 var(--error);
+}
+
+/* --- 4. DRAG AND DROP LINE ORDERING STYLES --- */
+/* Code ordering container with fixed line numbers and draggable code */
+.code-ordering-container {
+    display: flex;
+    gap: 0.25rem;
+    margin-top: 1rem;
+}
+
+/* Fixed column for line numbers (like code editor) */
+.line-numbers-column {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    background: #253247;
+    border-right: 1px solid #32405a;
+    padding: 0;
+    min-width: 2rem;
+    flex-shrink: 0;
+    border-radius: 8px 0 0 8px;
+}
+
+/* Individual line number (simple, no hover effects). Deliberately smaller
+   than the code font — it's reference info, not part of the exercise, so
+   it shouldn't compete for width or visual weight. */
+.line-number {
+    height: 3.25rem;
+    line-height: 3.25rem;
+    text-align: right;
+    padding-right: 0.4rem;
+    font-family: 'Roboto Mono', monospace;
+    font-size: clamp(0.6rem, 1.6vw, 0.7rem);
+    color: #64748b;
+    background: #253247;
+    user-select: none;
+}
+
+.code-ordering-area {
+    flex: 1;
+    min-height: 300px;
+    padding: 0;
+    border: 2px dashed var(--primary);
+    border-radius: 12px;
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.02), rgba(16, 185, 129, 0.02));
+    transition: var(--transition);
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+}
+
+.code-ordering-area.drag-over {
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.08), rgba(16, 185, 129, 0.08));
+    border-color: var(--secondary);
+    border-style: solid;
+    box-shadow: inset 0 0 20px rgba(59, 130, 246, 0.1);
+}
+
+.draggable-line {
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+    padding: 0.5rem 0.6rem;
+    background: var(--surface);
+    border: 1px solid var(--border-color);
+    border-bottom: none;
+    cursor: move;
+    user-select: none;
+    transition: var(--transition);
+    height: 3.25rem;
+    box-sizing: border-box;
+    position: relative;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+}
+
+.draggable-line:last-child {
+    border-bottom: 1px solid var(--border-color);
+}
+
+.draggable-line:hover {
+    background: var(--surface-hover);
+    border-left: 4px solid var(--primary);
+    padding-left: calc(0.6rem - 3px);
+    box-shadow: var(--shadow-sm);
+    transform: translateX(4px);
+}
+
+.draggable-line.dragging {
+    opacity: 0.4;
+    transform: scale(0.98);
+    background: rgba(59, 130, 246, 0.05);
+}
+
+/* Applied while a row slides into place after an up/down button move
+   (see animateRowSwap in script.js). The lift makes it clear which two
+   rows just traded places. */
+.draggable-line.swapping {
+    box-shadow: var(--shadow-md);
+    background: var(--surface-hover);
+}
+
+/* Visual placeholder shown between lines while dragging */
+.drop-placeholder {
+    height: 3px;
+    border-radius: 2px;
+    background: linear-gradient(90deg, var(--secondary), transparent);
+    margin: 8px 0;
+    transition: var(--transition);
+    opacity: 0;
+}
+
+.code-ordering-area.drag-over .drop-placeholder {
+    opacity: 1;
+}
+
+.draggable-line.correct {
+    border-left: 4px solid var(--success);
+    background: rgba(76, 175, 80, 0.04);
+    padding-left: calc(0.6rem - 3px);
+}
+
+.draggable-line.incorrect {
+    border-left: 4px solid var(--error);
+    background: rgba(176, 0, 32, 0.04);
+    padding-left: calc(0.6rem - 3px);
+}
+
+.draggable-line.locked {
+    cursor: not-allowed;
+    opacity: 0.6;
+    background: #253247;
+}
+
+.drag-handle {
+    color: var(--text-tertiary);
+    font-size: 1.3rem;
+    cursor: grab;
+    flex-shrink: 0;
+    transition: var(--transition);
+    display: flex;
+    align-items: center;
+}
+
+.updown-buttons {
+    display: flex;
+    flex-shrink: 0;
+    flex-direction: row;
+    align-items: center;
+    gap: 4px;
+}
+
+/* Native HTML5 drag-and-drop does not work on touchscreens, so we hide the
+   (non-functional there) drag handle on touch devices — the always-visible
+   up/down buttons above remain available as the reordering method there.
+   Detected via CSS media features rather than JS touch detection, since
+   (pointer: coarse) is what Chrome DevTools device emulation actually
+   sets, and it also covers real touchscreens reliably. */
+@media (pointer: coarse), (any-pointer: coarse), (max-width: 768px) {
+    .drag-handle {
+        display: none;
+    }
+}
+
+.updown-buttons button {
+    width: 30px;
+    height: 30px;
+    border: 1px solid var(--border-color);
+    background: var(--surface);
+    color: var(--primary);
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.75rem;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    transition: var(--transition);
+}
+
+.updown-buttons button:hover:not(:disabled) {
+    background: var(--primary-light);
+}
+
+.updown-buttons button:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+
+.draggable-line.locked .updown-buttons button {
+    pointer-events: none;
+    opacity: 0.4;
+}
+
+.draggable-line:hover .drag-handle {
+    color: var(--primary);
+    transform: scale(1.1);
+}
+
+.draggable-line.dragging .drag-handle {
+    cursor: grabbing;
+    color: var(--primary);
+}
+
+/* Jump-to dropdown container — replaced by the always-visible up/down
+   buttons below. Hidden rather than removed from the DOM/JS so it can be
+   restored easily if needed later. */
+.jump-to-container {
+    display: none;
+}
+
+.jump-to-select {
+    padding: 6px 10px;
+    border: 1px solid #32405a;
+    border-radius: 4px;
+    background: white;
+    color: #e2e8f0;
+    font-size: 0.8rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: border 0.2s, background 0.2s, box-shadow 0.2s;
+    max-width: 140px;
+}
+
+.jump-to-select:hover {
+    border-color: var(--primary);
+    background: rgba(59, 130, 246, 0.05);
+}
+
+.jump-to-select:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
+}
+
+.draggable-line.locked .line-number,
+.draggable-line.locked .jump-to-select {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.draggable-line.locked .jump-to-select {
+    pointer-events: none;
+}
+
+.draggable-line code {
+    font-family: 'Roboto Mono', monospace;
+    font-size: clamp(0.78rem, 2.2vw, 0.95rem);
+    color: var(--text-main);
+    white-space: pre;
+    flex: 1;
+}
+
+.error-text {
+    color: var(--error);
+    font-size: 0.85rem;
+    margin-top: 8px;
+}
+
+.secondary-btn {
+    background: transparent;
+    border: 1px solid var(--primary);
+    color: var(--primary);
+    padding: 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    text-transform: uppercase;
+    font-weight: 500;
+    transition: 0.3s;
+}
+
+.secondary-btn:hover {
+    background: rgba(59, 130, 246, 0.05);
+}
+
+.sidebar {
+    /* Ensure the sidebar can push the button to the bottom */
+    display: flex;
+    flex-direction: column;
+}
+
+.sidebar li {
+    display: flex;
+    justify-content: space-between; /* Pushes score to the right */
+    align-items: center;
+    padding: 12px 16px;
+    margin: 4px 0;
+    cursor: pointer;
+    border-radius: 4px;
+    font-size: clamp(0.82rem, 2.2vw, 0.9rem);
+    font-weight: 500;
+}
+
+.nav-score {
+    font-size: 0.75rem;
+    font-family: 'Roboto Mono', monospace;
+    background: #32405a;
+    padding: 4px 8px;
+    border-radius: 12px;
+    color: #94a3b8;
+    font-weight: 600;
+    transition: var(--transition);
+    display: inline-block;
+    min-width: 50px;
+    text-align: center;
+}
+
+.sidebar li.active .nav-score {
+    background: rgba(59, 130, 246, 0.14);
+    color: var(--primary-dark);
+}
+
+.nav-score.completed-score {
+    background: linear-gradient(135deg, var(--secondary), #0d9488) !important;
+    color: white !important;
+    font-weight: 700;
+    box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
+}
+
+.nav-score.partial-score {
+    background: linear-gradient(135deg, var(--warning), #f59e0b) !important;
+    color: white !important;
+    font-weight: 700;
+    box-shadow: 0 2px 8px rgba(255, 152, 0, 0.3);
+}
+
+/* Score badge indicators */
+.completed-score {
+    background: var(--secondary) !important;  /* Teal - 100% correct */
+    color: #064e3b !important;
+    font-weight: 600;
+}
+
+.partial-score {
+    background: #ff9800 !important;            /* Orange - Partial correct */
+    color: #1e293b !important;
+    font-weight: 600;
+}
+
+/* Default (unanswered) remains unchanged */
+.nav-score:not(.completed-score):not(.partial-score) {
+    background: #32405a;                       /* Gray - Unanswered */
+    color: #94a3b8;
+}
+
+/* --- 6. MODAL STYLES --- */
+.modal {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%) scale(0.95);
+    background: var(--surface);
+    border-radius: 12px;
+    box-shadow: 0 25px 50px rgba(0, 0, 0, 0.25);
+    z-index: 2000;
+    min-width: 400px;
+    max-width: 500px;
+    opacity: 0;
+    animation: modalSlideIn 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+@keyframes modalSlideIn {
+    to {
+        opacity: 1;
+        transform: translate(-50%, -50%) scale(1);
+    }
+}
+
+.modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.4);
+    backdrop-filter: blur(4px);
+    z-index: 1999;
+    animation: fadeIn 0.2s ease-out;
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1.5rem 2rem;
+    border-bottom: 2px solid var(--border-color);
+}
+
+.modal-header h2 {
+    margin: 0;
+    color: var(--primary);
+    font-size: clamp(1.1rem, 3.5vw, 1.3rem);
+    font-weight: 700;
+}
+
+.modal-close {
+    background: none;
+    border: none;
+    font-size: 1.8rem;
+    cursor: pointer;
+    color: var(--text-secondary);
+    padding: 4px 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: var(--transition);
+    border-radius: 6px;
+}
+
+.modal-close:hover {
+    color: var(--primary);
+    background: rgba(59, 130, 246, 0.08);
+}
+
+.modal-body {
+    padding: 2rem;
+}
+
+.modal-footer {
+    display: flex;
+    gap: 1rem;
+    padding: 1.5rem 2rem;
+    border-top: 1px solid var(--border-color);
+    justify-content: flex-end;
+}
+
+.settings-section {
+    margin-bottom: 2rem;
+}
+
+.settings-label {
+    display: block;
+    font-weight: 600;
+    margin-bottom: 0.8rem;
+    color: var(--text-main);
+    font-size: 0.9rem;
+}
+
+.mode-options {
+    display: flex;
+    flex-direction: column;
+    gap: 0.8rem;
+}
+
+.radio-option {
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    padding: 0.8rem;
+    border-radius: 4px;
+    transition: background 0.2s;
+}
+
+.radio-option:hover {
+    background: #253247;
+}
+
+.radio-option input[type="radio"] {
+    margin-right: 0.8rem;
+    cursor: pointer;
+    width: 18px;
+    height: 18px;
+}
+
+.radio-option span {
+    user-select: none;
+    font-size: 0.95rem;
+}
+
+.timer-input {
+    width: 100%;
+    padding: 10px;
+    border: 1px solid #32405a;
+    border-radius: 4px;
+    font-size: 1rem;
+    font-family: 'Roboto Mono', monospace;
+    box-sizing: border-box;
+    transition: border-color 0.3s;
+}
+
+.timer-input:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.timer-input.invalid {
+    border-color: var(--error);
+}
+
+.input-hint {
+    display: block;
+    margin-top: 0.5rem;
+    font-size: 0.8rem;
+    color: #64748b;
+}
+
+/* Timer display in main app */
+.timer-container {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 1.5rem;
+    animation: slideDown 0.3s ease-out;
+}
+
+@keyframes slideDown {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.timer-badge {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    background: linear-gradient(135deg, var(--surface), var(--surface-hover));
+    border: 2px solid var(--secondary);
+    border-radius: 10px;
+    padding: 1rem 1.5rem;
+    box-shadow: 0 4px 12px rgba(16, 185, 129, 0.15);
+    transition: var(--transition);
+}
+
+.timer-badge:hover {
+    box-shadow: 0 6px 16px rgba(16, 185, 129, 0.25);
+}
+
+.timer-label {
+    font-weight: 700;
+    color: var(--text-main);
+    font-size: 0.9rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.timer-display {
+    font-family: 'Roboto Mono', monospace;
+    font-size: 1.5rem;
+    font-weight: 800;
+    color: var(--secondary);
+    min-width: 80px;
+    text-align: right;
+}
+
+.timer-display.warning {
+    color: var(--warning);
+    animation: none;
+}
+
+.timer-display.critical {
+    color: var(--error);
+    animation: pulse3 1s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes pulse3 {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
+}
+
+/* --- 7. SCORE SUMMARY MODAL STYLES --- */
+.score-summary-modal {
+    min-width: 450px;
+    max-width: 550px;
+}
+
+.score-summary-content {
+    display: flex;
+    flex-direction: column;
+}
+
+.score-summary-header {
+    padding: 2rem;
+    background: linear-gradient(135deg, var(--primary), #2563eb);
+    border-bottom: none;
+    border-radius: 12px 12px 0 0;
+}
+
+.score-summary-header h2 {
+    margin: 0;
+    color: white;
+    font-size: 1.5rem;
+    text-align: center;
+    font-weight: 700;
+}
+
+.score-summary-body {
+    padding: 2.5rem;
+    text-align: center;
+}
+
+.score-display-section {
+    margin-bottom: 2rem;
+    display: flex;
+    justify-content: center;
+    animation: scaleIn 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes scaleIn {
+    from {
+        opacity: 0;
+        transform: scale(0.8);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+.score-circle {
+    width: 200px;
+    height: 200px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--primary), var(--secondary));
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 12px 40px rgba(59, 130, 246, 0.35);
+    color: white;
+    position: relative;
+}
+
+.score-circle::before {
+    content: '';
+    position: absolute;
+    inset: -8px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--primary), var(--secondary));
+    opacity: 0.2;
+    animation: pulse2 2s ease-in-out infinite;
+}
+
+@keyframes pulse2 {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.1); }
+}
+
+.score-circle > * {
+    position: relative;
+    z-index: 1;
+}
+
+.score-number {
+    font-size: 3rem;
+    font-weight: 800;
+    font-family: 'Roboto Mono', monospace;
+    line-height: 1;
+    margin-bottom: 0.2rem;
+}
+
+.score-label {
+    font-size: 0.95rem;
+    font-weight: 700;
+    opacity: 0.95;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+}
+
+.student-info-section {
+    margin: 2rem 0;
+    padding: 1.5rem;
+    background: linear-gradient(135deg, var(--primary-light), var(--secondary-light));
+    border-radius: 10px;
+    border-left: 4px solid var(--primary);
+}
+
+.info-item {
+    display: flex;
+    justify-content: center;
+    gap: 0.8rem;
+    align-items: center;
+}
+
+.info-label {
+    font-weight: 700;
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+}
+
+.info-value {
+    color: var(--text-main);
+    font-weight: 600;
+    font-size: 1rem;
+    word-break: break-all;
+}
+
+.completion-message {
+    margin-top: 1.5rem;
+    font-size: 1rem;
+    color: var(--text-secondary);
+    font-style: italic;
+    line-height: 1.6;
+}
+
+.completion-message.success {
+    color: var(--success);
+    font-weight: 600;
+    font-style: normal;
+}
+
+.completion-message.warning {
+    color: var(--warning);
+    font-weight: 600;
+    font-style: normal;
+}
+
+.score-summary-footer {
+    border-top: 1px solid var(--border-color);
+    padding: 1.5rem 2rem;
+    display: flex;
+    justify-content: center;
+    background: var(--surface);
+}
+
+.score-summary-footer .primary-btn {
+    min-width: 150px;
+}
+
+.qr-share-section {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+    margin: 0.5rem 0 1.5rem 0;
+}
+
+.qr-code-box {
+    display: inline-flex;
+    padding: 18px;
+    background: #1e293b;
+    border-radius: 12px;
+    box-shadow: var(--shadow-sm);
+    border: 1px solid var(--border-color);
+}
+
+.qr-code-box img,
+.qr-code-box canvas {
+    display: block;
+    border-radius: 4px;
+}
+
+.qr-caption {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    margin: 0;
+}
+
+.qr-share-section--sidebar {
+    margin: 0.9rem 0 0 0;
+}
+
+.qr-code-box--sidebar {
+    padding: 12px;
+}
+
+.qr-code-box--sidebar img,
+.qr-code-box--sidebar canvas {
+    width: 150px;
+    height: 150px;
+}
+
+/* --- 8. ALERT MODAL STYLES --- */
+.alert-modal {
+    min-width: 350px;
+    max-width: 450px;
+}
+
+.alert-content {
+    display: flex;
+    flex-direction: column;
+}
+
+.alert-header {
+    padding: 1.5rem 2rem;
+    background: linear-gradient(135deg, var(--error), #ef4444);
+    border-bottom: none;
+    border-radius: 12px 12px 0 0;
+}
+
+.alert-header h3 {
+    margin: 0;
+    color: white;
+    font-size: 1.2rem;
+    font-weight: 700;
+}
+
+.alert-body {
+    padding: 2rem;
+    min-height: 60px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.alert-body p {
+    margin: 0;
+    color: var(--text-main);
+    font-size: 0.95rem;
+    line-height: 1.6;
+}
+
+.alert-footer {
+    border-top: 1px solid var(--border-color);
+    padding: 1.5rem 2rem;
+    display: flex;
+    justify-content: center;
+}
+
+.alert-footer .primary-btn {
+    min-width: 100px;
+}
+
+/* Settings modal styles */
+.settings-section {
+    margin-bottom: 1.5rem;
+}
+
+.settings-label {
+    display: block;
+    font-weight: 700;
+    margin-bottom: 0.8rem;
+    color: var(--text-main);
+    font-size: 0.95rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.mode-options {
+    display: flex;
+    flex-direction: column;
+    gap: 0.8rem;
+}
+
+.radio-option {
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    padding: 1rem;
+    border-radius: 8px;
+    transition: var(--transition);
+    border: 2px solid transparent;
+}
+
+.radio-option:hover {
+    background: var(--surface-hover);
+    border-color: var(--primary);
+}
+
+.radio-option input[type="radio"] {
+    margin-right: 0.8rem;
+    cursor: pointer;
+    width: 20px;
+    height: 20px;
+    accent-color: var(--primary);
+}
+
+.radio-option span {
+    user-select: none;
+    font-size: 0.95rem;
+    font-weight: 500;
+}
+
+.timer-input {
+    width: 100%;
+    padding: 12px;
+    border: 2px solid var(--border-color);
+    border-radius: 8px;
+    font-size: 1rem;
+    font-family: 'Roboto Mono', monospace;
+    box-sizing: border-box;
+    transition: var(--transition);
+    background: var(--surface);
+    color: var(--text-main);
+}
+
+.timer-input:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.timer-input.invalid {
+    border-color: var(--error);
+}
+
+.input-hint {
+    display: block;
+    margin-top: 0.5rem;
+    font-size: 0.8rem;
+    color: var(--text-tertiary);
+}
+
+/* --- 9. SAMPLE OUTPUT CONSOLE PANEL (slides in from the right) --- */
+/* Styled to look like a real terminal/console window, since that's where
+   a C program's printf output would actually appear: dark screen
+   background, monospace font, and a light "phosphor" text color rather
+   than the app's usual Material palette. */
+.console-panel {
+    position: fixed;
+    top: 0;
+    right: 0;
+    height: 100vh;
+    width: 480px;
+    max-width: 92vw;
+    background: #1e1e1e;
+    box-shadow: -8px 0 32px rgba(0, 0, 0, 0.45);
+    z-index: 2000;
+    display: flex;
+    flex-direction: column;
+    transform: translateX(100%);
+    transition: transform 0.32s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.console-panel.open {
+    transform: translateX(0);
+}
+
+.console-titlebar {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.9rem 1rem;
+    background: #323233;
+    border-bottom: 1px solid #000;
+    flex-shrink: 0;
+}
+
+.console-traffic-lights {
+    display: flex;
+    gap: 6px;
+    flex-shrink: 0;
+}
+
+.console-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    display: inline-block;
+}
+
+.dot-red { background: #ff5f56; }
+.dot-yellow { background: #ffbd2e; }
+.dot-green { background: #27c93f; }
+
+.console-title {
+    flex: 1;
+    margin: 0;
+    text-align: center;
+    color: #cfcfcf;
+    font-family: 'Roboto Mono', monospace;
+    font-size: 0.85rem;
+    font-weight: 500;
+    letter-spacing: 0.3px;
+    /* Offset by the traffic-light width so the title stays visually
+       centered in the bar rather than centered between the lights and
+       the close button. */
+    margin-left: -1.5rem;
+}
+
+.console-close-btn {
+    background: none;
+    border: none;
+    color: #aaaaaa;
+    font-size: 1.5rem;
+    line-height: 1;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 6px;
+    flex-shrink: 0;
+    transition: var(--transition);
+}
+
+.console-close-btn:hover {
+    color: #1e293b;
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.console-body {
+    flex: 1;
+    overflow-y: auto;
+    background: #0c0c0c;
+    background-image: repeating-linear-gradient(
+        180deg,
+        rgba(255, 255, 255, 0.015) 0px,
+        rgba(255, 255, 255, 0.015) 1px,
+        transparent 1px,
+        transparent 2px
+    );
+    padding: 1.25rem 1.5rem;
+}
+
+.console-text {
+    margin: 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-family: 'Roboto Mono', 'Consolas', 'Courier New', monospace;
+    font-size: 0.95rem;
+    line-height: 1.7;
+    color: #33ff66;
+    text-shadow: 0 0 6px rgba(51, 255, 102, 0.35);
+}
+
+/* Blinking cursor after the output, to sell the "live terminal" feel */
+.console-body::after {
+    content: '';
+    display: none;
+}
+
+.console-text::after {
+    content: '\2588';
+    display: inline-block;
+    margin-left: 2px;
+    color: #33ff66;
+    animation: consoleBlink 1s step-end infinite;
+}
+
+@keyframes consoleBlink {
+    0%, 49% { opacity: 1; }
+    50%, 100% { opacity: 0; }
+}
+
+@media (max-width: 480px) {
+    .console-panel {
+        width: 100vw;
+        max-width: 100vw;
+    }
+}
+
+/* --- 10.5 CONSOLE DRAWER TAB --- */
+/* A permanently docked handle on the right edge that lets a student pull
+   the console panel into view for the current activity on demand,
+   independent of the global auto-show setting. Sits at a lower z-index
+   than the panel itself, so once the panel slides open it naturally tucks
+   in behind it — no separate show/hide choreography needed beyond
+   toggling `display`. */
+.console-drawer-tab {
+    position: fixed;
+    top: 50%;
+    right: 0;
+    transform: translateY(-50%);
+    z-index: 1900;
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+    background: linear-gradient(135deg, var(--primary), #2563eb);
+    color: #1e293b;
+    border: none;
+    padding: 1rem 0.55rem;
+    border-radius: 10px 0 0 10px;
+    cursor: pointer;
+    box-shadow: -4px 0 14px rgba(0, 0, 0, 0.25);
+    transition: var(--transition);
+}
+
+.console-drawer-tab:hover {
+    padding-right: 0.85rem;
+    background: linear-gradient(135deg, var(--primary-dark), #1d4ed8);
+}
+
+.console-drawer-tab:focus-visible {
+    outline: 3px solid var(--secondary);
+    outline-offset: 2px;
+}
+
+.console-drawer-tab i {
+    font-size: 1.1rem;
+}
+
+.console-drawer-tab-label {
+    writing-mode: vertical-rl;
+    transform: rotate(180deg);
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+}
+
+@media (max-width: 768px) {
+    .console-drawer-tab {
+        padding: 0.85rem 0.45rem;
+    }
+    .console-drawer-tab i {
+        font-size: 1rem;
+    }
+}
+
+/* --- 10. SAMPLE OUTPUT TOGGLE SWITCH --- */
+.toggle-control {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    cursor: pointer;
+    user-select: none;
+}
+
+.toggle-switch {
+    position: relative;
+    display: inline-block;
+    width: 46px;
+    height: 26px;
+    flex-shrink: 0;
+}
+
+.toggle-switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+    position: absolute;
+}
+
+.toggle-slider {
+    position: absolute;
+    inset: 0;
+    background-color: #475569;
+    transition: var(--transition);
+    border-radius: 34px;
+}
+
+.toggle-slider::before {
+    position: absolute;
+    content: "";
+    height: 20px;
+    width: 20px;
+    left: 3px;
+    bottom: 3px;
+    background-color: white;
+    transition: var(--transition);
+    border-radius: 50%;
+    box-shadow: var(--shadow-sm);
+}
+
+.toggle-switch input:checked + .toggle-slider {
+    background: linear-gradient(135deg, var(--primary), #2563eb);
+}
+
+.toggle-switch input:checked + .toggle-slider::before {
+    transform: translateX(20px);
+}
+
+.toggle-switch input:focus-visible + .toggle-slider {
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.25);
+}
+
+.toggle-switch input:disabled + .toggle-slider {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.toggle-label {
+    font-size: clamp(0.82rem, 2.2vw, 0.9rem);
+    font-weight: 600;
+    color: var(--text-main);
+}
+
+.toggle-control:has(input:disabled) {
+    cursor: not-allowed;
+}
+
+.toggle-control:has(input:disabled) .toggle-label {
+    opacity: 0.5;
+}
+
+/* ============================================================
+   SUBNET VISUALIZER — ported Subnetify component styles
+   (panels, bit-grid, mask compare, tables, comparison cards).
+   Global html/body/box-sizing reset lines were dropped from the
+   original source above -- the shell's own reset already covers
+   the whole app now that :root points at the same dark palette.
+   ============================================================ */
 /* ---------- Header ---------- */
 .app-header {
   display: flex;
@@ -1313,4 +3714,96 @@ button:focus-visible, input:focus-visible {
 
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; }
+}
+
+/* ============================================================
+   SUBNET VISUALIZER — bridging styles to fit inside the shell's
+   existing .content column and sidebar (the pieces the original
+   standalone Subnetify page didn't need, since it had its own
+   header/layout chrome instead of a shared app shell).
+   ============================================================ */
+.subnetify-app {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  animation: fadeIn 0.4s ease-out;
+}
+
+.sv-header.card-header {
+  margin-bottom: 0;
+}
+.sv-header h2 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-primary);
+}
+.sv-header h2 i { color: var(--borrowed); }
+
+.sv-header-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  padding: 12px 16px;
+}
+
+/* Tools nav section in the sidebar (Subnet Visualizer entry) — same
+   base list-item feel as the graded exercise list, but visually marked
+   as a non-scored tool: an "Ungraded" tag instead of a score pill, and
+   an amber accent (Subnetify's borrowed-bit color) instead of the score
+   list's blue, so it reads as a distinct category at a glance. */
+.tools-nav-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 0.4rem 0;
+}
+.tools-nav-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 0.75rem 1rem;
+  margin: 0.4rem 0;
+  cursor: pointer;
+  border-radius: 8px;
+  font-size: clamp(0.82rem, 2.2vw, 0.9rem);
+  font-weight: 500;
+  transition: var(--transition);
+  position: relative;
+  color: var(--text-main);
+  overflow: hidden;
+  border: 1px solid transparent;
+}
+.tools-nav-list li:hover {
+  background: var(--surface-hover);
+  border-color: var(--border-color);
+}
+.tools-nav-list li.active {
+  background: rgba(245, 158, 11, 0.12);
+  border-color: var(--borrowed);
+  color: #fcd34d;
+  font-weight: 600;
+}
+.tools-nav-list li i { color: var(--borrowed); margin-right: 4px; }
+.nav-tool-tag {
+  font-size: 0.62rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(245, 158, 11, 0.14);
+  color: #fcd34d;
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+@media (max-width: 480px) {
+  .sv-header-actions { padding: 10px 12px; }
 }
