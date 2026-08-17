@@ -468,6 +468,18 @@ body, html {
 /* Main Content Area */
 .content {
     flex: 1;
+    /* Flex items default to min-width: auto, meaning this box refuses to
+       shrink below the intrinsic (min-content) width of whatever's
+       inside it. The Subnet Visualizer panels below were designed for a
+       normal block-flow page (no flex ancestor at all), so without this
+       override .content silently grows past the available row width the
+       moment the visualizer's wider rows (tables, bit grids) are open,
+       producing a page-level horizontal scrollbar. min-width: 0 lets it
+       shrink to whatever width the flex row actually gives it; overflow-x
+       is the safety net for any residual sub-pixel overflow, matching the
+       overflow-x: hidden the visualizer's own page shell used to rely on. */
+    min-width: 0;
+    overflow-x: hidden;
     padding: 2rem;
     overflow-y: auto;
     background: linear-gradient(to bottom, var(--bg), var(--surface));
@@ -3072,15 +3084,21 @@ body.exam-mode .bit-place-value {
 }
 
 /* ---------- Octet label ---------- */
-/* Identifies which octet (1-4) a bit visualization belongs to. Positioned
-   below the bits themselves so the eye reads: total -> math -> bits ->
-   "which octet was that". */
+/* Identifies which octet (1-4), or which target subnet (Atom 3's
+   "Subnet N"), a bit visualization belongs to. Positioned below the bits
+   themselves so the eye reads: total -> math -> bits -> "which one was
+   that". nowrap is required: Atom 3's subnet-index box is only as wide as
+   its own (often 3-4 bit) pattern — much narrower than Panel 4's full
+   162px octet groups — so without it, "Subnet N" wraps onto two lines
+   instead of overflowing past the narrow box's edges, which centered
+   single-line text does cleanly. */
 .octet-viz-label {
   font-size: 0.65rem;
   color: var(--text-dim);
   text-transform: uppercase;
   letter-spacing: 0.03em;
   text-align: center;
+  white-space: nowrap;
 }
 
 .legend { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 16px; font-size: 0.78rem; }
@@ -3722,10 +3740,24 @@ button:focus-visible, input:focus-visible {
    standalone Subnetify page didn't need, since it had its own
    header/layout chrome instead of a shared app shell).
    ============================================================ */
+/* The original standalone Subnetify page had a global `* { box-sizing:
+   border-box }` reset that this port intentionally dropped (to avoid
+   silently changing box-sizing for the rest of the shell app). Its panels
+   rely on that reset though -- lots of `width: 100%` elements also carry
+   their own padding/border, which without border-box get added on TOP of
+   that 100%, contributing to the exact horizontal-overflow bug this
+   section fixes. Scoping the reset to just the visualizer keeps it safe. */
+.subnetify-app, .subnetify-app *, .subnetify-app *::before, .subnetify-app *::after {
+  box-sizing: border-box;
+}
+
 .subnetify-app {
   display: flex;
   flex-direction: column;
   gap: 22px;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   animation: fadeIn 0.4s ease-out;
 }
 
@@ -3751,6 +3783,18 @@ button:focus-visible, input:focus-visible {
   border-radius: var(--radius-md);
   padding: 12px 16px;
 }
+
+/* ============================================================
+   SUBNETIFY — SIDEBAR NAVIGATION (localized)
+   Every rule below is scoped to .tools-nav-list / .tools-nav-sublist /
+   .tools-nav-subgroup / .nav-tool-tag / .atom-placeholder-* — i.e. only
+   the Subnetify and Atoms entries in the sidebar and their placeholder
+   pages. Nothing here redefines a bare ".sidebar li" or "#fileList li"
+   selector, so none of it touches the graded exercise list's own
+   look/behavior (active-bar, hover state, score pills, etc.) — that
+   list is styled entirely by the base sidebar rules earlier in this
+   file, untouched by this section.
+   ============================================================ */
 
 /* Tools nav section in the sidebar (Subnet Visualizer entry) — same
    base list-item feel as the graded exercise list, but visually marked
@@ -3790,6 +3834,20 @@ button:focus-visible, input:focus-visible {
   font-weight: 600;
 }
 .tools-nav-list li i { color: var(--borrowed); margin-right: 4px; }
+
+/* The base exercise list (#fileList) shows a solid left "bar" on its
+   active item via the generic ".sidebar li.active::before" rule (see
+   the top of this file) — that rule targets every <li> under .sidebar,
+   including these Subnetify/Atoms rows, since they're nested in the same
+   <nav>. Subnetify's own active state is already communicated by its
+   amber border/background above, so the inherited blue bar is just
+   redundant clutter here — this turns it off for Subnetify/Atoms rows
+   ONLY, leaving the exercise list's own active-bar completely intact. */
+.tools-nav-list li::before {
+  content: none;
+  display: none;
+}
+
 .nav-tool-tag {
   font-size: 0.62rem;
   font-weight: 700;
@@ -3804,6 +3862,551 @@ button:focus-visible, input:focus-visible {
   flex-shrink: 0;
 }
 
+/* --- Atoms sub-navigation (placeholder pages nested under Subnetify) --- */
+/* Wrapper <li> for the whole "Atoms" group. Non-interactive itself (no
+   hover/active affordance, no pointer cursor) — it exists purely so the
+   subheader label + nested <ul> can live inside a single valid <li> of
+   the outer .tools-nav-list, since a <ul> can't be a direct child of
+   another <ul>. */
+.tools-nav-subgroup {
+  cursor: default;
+  display: block;
+  padding: 0 !important;
+  margin: 0.2rem 0 0 0 !important;
+  background: transparent !important;
+  border: none !important;
+}
+
+.tools-nav-subgroup:hover {
+  background: transparent !important;
+}
+
+/* This wrapper is also a <li> under .sidebar, so it inherits the same
+   generic active-bar pseudo-element as every other sidebar row — but it
+   is never itself clickable/active, so switch it off unconditionally
+   rather than leaving a dead ::before sitting behind transparent
+   backgrounds. */
+.tools-nav-subgroup::before {
+  content: none;
+  display: none;
+}
+
+/* Group label, same visual language as the graded exercise list's own
+   .sidebar-phase-header — quiet, uppercase, no interactive affordance —
+   so it reads as a grouping divider rather than a clickable row. */
+.tools-nav-subheader {
+  display: block;
+  padding: 0.5rem 0.6rem 0.2rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1.1px;
+  color: var(--text-tertiary);
+}
+
+/* Indented nested list holding the Atom 1–5 placeholder entries. Mirrors
+   .tools-nav-list's own <li> styling but sits inset from the left edge
+   and carries a thin connecting rule, so it visually reads as "inside"
+   the Subnetify tools group rather than a sibling section of equal
+   weight. */
+.tools-nav-sublist {
+  list-style: none;
+  margin: 0 0 0.4rem 0;
+  padding: 0 0 0 0.6rem;
+  border-left: 2px solid var(--border-color);
+  margin-left: 0.85rem;
+}
+
+.tools-nav-sublist li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 0.6rem 0.85rem;
+  margin: 0.3rem 0;
+  cursor: pointer;
+  border-radius: 8px;
+  font-size: clamp(0.78rem, 2.1vw, 0.86rem);
+  font-weight: 500;
+  transition: var(--transition);
+  position: relative;
+  color: var(--text-main);
+  border: 1px solid transparent;
+}
+
+.tools-nav-sublist li:hover {
+  background: var(--surface-hover);
+  border-color: var(--border-color);
+}
+
+.tools-nav-sublist li.active {
+  background: rgba(245, 158, 11, 0.12);
+  border-color: var(--borrowed);
+  color: #fcd34d;
+  font-weight: 600;
+}
+
+.tools-nav-sublist li i {
+  color: var(--borrowed);
+  margin-right: 4px;
+}
+
+/* Same rationale as .tools-nav-list li::before above: suppress the
+   inherited blue active-bar for the nested Atom 1–5 rows only, without
+   touching the exercise list's own active-bar behavior. */
+.tools-nav-sublist li::before {
+  content: none;
+  display: none;
+}
+
+/* --- Atom placeholder page --- */
+.atom-placeholder-view {
+  display: flex;
+  flex-direction: column;
+  animation: fadeIn 0.4s ease-out;
+}
+
+.atom-placeholder-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  padding: 4rem 2rem;
+  border: 2px dashed var(--border-color);
+  border-radius: 12px;
+  background: var(--surface);
+  text-align: center;
+  color: var(--text-secondary);
+}
+
+.atom-placeholder-icon {
+  font-size: 2.5rem;
+  color: var(--borrowed);
+  opacity: 0.8;
+}
+
+.atom-placeholder-body p {
+  margin: 0;
+  max-width: 32ch;
+  font-size: 0.95rem;
+  line-height: 1.6;
+}
+/* ============================================================
+   END SUBNETIFY — SIDEBAR NAVIGATION
+   ============================================================ */
+
 @media (max-width: 480px) {
   .sv-header-actions { padding: 10px 12px; }
+}
+
+/* ============================================================
+   ATOM 1 (SCORED): THE CONSTRAINT — BIT QUESTION
+   Reuses SubnetVisualizer's Panel 1 (.octet-input-row/.class-value),
+   Panel 2 (.bit-grid/.bit-cell/.weight-row-main), and Panel 4/5's
+   .formula-box component styles verbatim — those selectors are plain
+   globals in this file already (not scoped to .subnetify-app), so no
+   duplicate styling is needed for the shared pieces. This block only
+   covers the small amount of Atom-1-specific layout glue needed to sit
+   correctly inside the dark .code-editor question card instead of the
+   visualizer's own panel chrome.
+   ============================================================ */
+.atom1-question, .atom1-question *, .atom1-question *::before, .atom1-question *::after {
+  box-sizing: border-box;
+}
+
+.atom1-panel1 {
+  margin: 1rem 0 1.25rem;
+}
+
+.atom1-octet-row {
+  margin-bottom: 0;
+}
+
+/* Read-only stand-in for Panel 1's editable octet <input> — same box
+   shape/sizing so it lines up baseline-to-baseline with the Class badge
+   and CIDR suffix beside it, but rendered as static text since this
+   address is given, not something the student edits. */
+.atom1-octet-value {
+  width: 76px;
+  background: var(--bg-surface-2, rgba(255, 255, 255, 0.06));
+  border: 1px solid var(--border-soft, rgba(255, 255, 255, 0.15));
+  color: var(--text-primary, #eceff1);
+  font-family: var(--font-mono);
+  font-size: 1.05rem;
+  padding: 8px 10px;
+  border-radius: 6px;
+  text-align: center;
+}
+
+.atom1-bitgrid-wrap {
+  margin: 1rem 0;
+}
+
+.atom1-borrow-badge {
+  margin-bottom: 14px;
+}
+
+.atom1-bitgrid {
+  padding: 10px 4px 4px;
+}
+
+.atom1-bitgrid .bit-cell[role="button"] {
+  cursor: pointer;
+}
+
+.atom1-bitgrid .bit-cell[role="button"]:focus-visible {
+  outline: 2px solid var(--host);
+  outline-offset: 2px;
+}
+
+/* Grading lock: Atom 1's answer mechanism is clicking bits, not typing
+   into an <input>, so it needs its own disabled-look instead of relying
+   on the .bitbox/.answer-input-num `.locked` styling used elsewhere.
+   pointer-events:none is the real lock (also enforced in JS); opacity
+   matches the muted look every other locked input in this app already
+   uses (see .bitbox.locked etc.). */
+.atom1-bitgrid.atom1-locked {
+  pointer-events: none;
+  opacity: 0.65;
+}
+
+.atom1-formula-box {
+  margin-top: 1rem;
+  margin-bottom: 0;
+}
+
+/* ============================================================
+   ATOM 1 — DEDICATED FULL-WIDTH VIEW
+   Every question renders as its own full-size .panel (the same component
+   the Subnet Visualizer itself uses), stacked on one continuous scrollable
+   page, instead of being squeezed into the Exercises list's narrow
+   .code-editor card. Panel 1 / Panel 2 / formula-box styling above (and
+   .subnetify-app's box-sizing reset, applied via the shared class on
+   #atom1View) is reused verbatim — this block only covers the page shell
+   and the bits unique to this view: the per-question score badge, the
+   Verify/Reset action row, and its feedback message.
+   ============================================================ */
+.atom1-questions-container {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.atom1-q-panel.correct {
+  box-shadow: inset 4px 0 0 var(--success);
+}
+
+.atom1-q-panel.incorrect {
+  box-shadow: inset 4px 0 0 var(--error);
+}
+
+/* Reuses the app's existing bare .completed-score/.partial-score classes
+   (see updateAtom1ScoreBadge in script.js) so this badge's coloring always
+   matches the Exercises list's own score pills exactly. */
+.atom1-score-badge {
+  margin-left: auto;
+  background: #32405a;
+  color: #94a3b8;
+  font-weight: 700;
+}
+
+.atom1-actions {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-top: 1.25rem;
+}
+
+/* Mirrors #feedback's own styling (see section 5, above) so verified
+   Atom 1 questions read identically to the Exercises list's feedback,
+   just scoped per-question instead of to one shared element. */
+.atom1-feedback {
+  font-weight: 600;
+  min-height: 1.2rem;
+  padding: 0.8rem;
+  border-radius: 8px;
+  display: none;
+  flex: 1 1 auto;
+  min-width: 200px;
+}
+
+.atom1-feedback.show {
+  display: block;
+}
+
+.atom1-feedback.success {
+  background: rgba(76, 175, 80, 0.1);
+  color: var(--success);
+  border-left: 4px solid var(--success);
+}
+
+.atom1-feedback.error {
+  background: rgba(176, 0, 32, 0.1);
+  color: var(--error);
+  border-left: 4px solid var(--error);
+}
+
+.atom1-feedback.warning {
+  background: rgba(255, 152, 0, 0.1);
+  color: var(--warning);
+  border-left: 4px solid var(--warning);
+}
+
+/* ============================================================
+   ATOM 3: THE SPACE MAP — FRONT & BACK SUBNETS
+   Reuses the shared .panel/.atom1-panel1/.class-value/.octet-field/
+   .bit-cell/.atom1-actions/.atom1-feedback component language from
+   Atom 1 & 2 (all plain globals in this file already, or already scoped
+   generically enough to apply here with no changes). Only the two-group
+   subnet table and its compact, borrowedBits-wide bit strip per row are
+   unique to Atom 3.
+   ============================================================ */
+/* .atom3-subnet-tables is no longer generated (buildAtom3SubnetListHtml
+   always returns a single .atom3-subnet-group column now, even for the
+   >8-subnet "First 4"/"Last 4" case) — left defined here only in case
+   anything still targets it directly; it has no effect on its own. */
+.atom3-subnet-tables {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+}
+
+.atom3-subnet-group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 1.25rem 0 0;
+}
+
+.atom3-group-title {
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+  margin: 0 0 2px;
+}
+
+/* The second section header ("Last 4 Subnets") when both sections share
+   one stacked column — a bit of breathing room plus a top divider so it
+   reads as a new section rather than blending into the first section's
+   final row. */
+.atom3-group-title-second {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px dashed var(--border-soft);
+}
+
+/* Two explicit columns — "Subnet" and "IP Address" — so each subnet row
+   reads as a clean two-column layout rather than a flex row that has to
+   wrap the IP address wherever it happens to fit. With exactly two direct
+   children (the subnet-index viz, then .atom3-row-network), grid assigns
+   them to column 1 and column 2 automatically — no extra wrapper markup
+   needed. Below the mobile breakpoint this collapses to a single column,
+   so the IP address becomes its own full-width row stacked underneath
+   the subnet UI instead of trying to align beside it. */
+.atom3-subnet-row {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: end;
+  column-gap: 16px;
+  row-gap: 12px;
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  padding: 10px 14px 8px;
+}
+
+@media (max-width: 480px) {
+  .atom3-subnet-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ---------- Atom 3: "SUBNET #" pill ----------
+   Pairs a "SUBNET" label with the live decimal readout — a compact header
+   sitting directly above the weight row/bit-answer grid. Deliberately
+   borderless/backgroundless so the pill doesn't read as its own boxed
+   element competing with the bits below it — the circular index badge is
+   the one bold, solid piece here. A plain "Subnet 5" line reads like any
+   other caption, but a numbered badge reads as an identifier, the same
+   visual language a badge/avatar number uses elsewhere to say "this is
+   THE 5, not just item #5 in a list". */
+.atom3-subnet-index-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 2px;
+}
+
+.atom3-subnet-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  background: transparent;
+  border: none;
+  padding: 0;
+}
+
+.atom3-subnet-pill-label {
+  font-size: 0.58rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.atom3-subnet-pill-circle {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--borrowed);
+  color: #1e293b;
+  font-family: var(--font-mono);
+  font-weight: 800;
+  font-size: 0.78rem;
+  line-height: 1;
+}
+
+/* Narrow subnet columns (few borrowed bits -> a narrow .octet-bits-group
+   container, see the groupWidthPx comment on renderAtom3SubnetIndexViz)
+   don't have room for "SUBNET" and the circle side by side without
+   overflowing their column — stack the label above the circle instead so
+   the pill always fits inside the same width the bit row below it uses. */
+@container (max-width: 92px) {
+  .atom3-subnet-pill {
+    flex-direction: column;
+    gap: 2px;
+  }
+  .atom3-subnet-pill-label {
+    font-size: 0.5rem;
+  }
+}
+
+/* The "Subnet Index" bit strip (see renderAtom3SubnetIndexInner in
+   script.js) reuses .unified-octet-cell/.bit-cell — the same joined-box
+   language Panel 4's own borrowed-bit pattern viz uses (.u-bit) — but
+   stays interactive here since the student is building the pattern
+   rather than viewing a derived one. Sized to match .u-bit exactly
+   (20x22) so the two visually align; aspect-ratio is reset to auto since
+   the fixed height already defines the cell's shape. */
+.atom3-bit-row .bit-cell {
+  flex: none;
+  width: 20px;
+  height: 22px;
+  aspect-ratio: auto;
+  font-size: 0.72rem;
+  border-radius: 0;
+  border: none;
+}
+
+.atom3-bit-row.atom3-locked {
+  pointer-events: none;
+  opacity: 0.65;
+}
+
+/* Live composed network address per subnet row — now rendered with
+   Panel 4's own full "Octet Bits & Subnet ID" per-octet bit visualization
+   (see atom3BuildFullAddressViz/atom3BuildSingleOctetBits in script.js)
+   instead of a plain dotted-decimal string. .octet-bits-row already lays
+   its four .octet-bits-group children out inline (see the SUBNET
+   VISUALIZER section above); this is the second column of
+   .atom3-subnet-row's two-column grid (Subnet | IP Address), right-aligned
+   within that column on wide screens and lets it wrap on narrow screens. */
+.atom3-row-network {
+  display: inline-flex;
+  justify-self: end;
+}
+.atom3-row-network .octet-bits-row {
+  flex-wrap: wrap;
+  row-gap: 12px;
+}
+
+@media (max-width: 480px) {
+  .atom3-row-network {
+    justify-self: stretch;
+    width: 100%;
+  }
+  .atom3-row-network .octet-bits-row {
+    justify-content: flex-start;
+  }
+}
+
+/* ---------- Atom 3: mask-assembly step (reuses Atom 2's grid engine) ---------- */
+.atom3-mask-wrap {
+  margin-top: 1.25rem;
+}
+.atom3-mask-hint {
+  margin: 0 0 10px;
+}
+
+/* ============================================================
+   ATOM 3 (REDESIGNED): LIVE SUBNET LIST
+   Sits below Atom 1's own boundary-click grid (reused as-is for Atom 3 —
+   see renderAtom1BitGridInner in script.js) and recomputes purely from
+   whichever borrowed-bit count is currently selected there. This is a
+   self-check aid, the same role Atom 1's live formula box plays — never a
+   separate answer surface — so it's visually quieter than the graded grid
+   above it: a muted heading instead of a panel-style header, and rows
+   built from the same .atom3-subnet-row/.unified-octet-cell/.u-bit
+   language Panel 4's own borrowed-pattern visualization already uses.
+   ============================================================ */
+.atom3-live-wrap {
+  margin-top: 1.25rem;
+}
+
+.atom3-live-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8rem;
+  margin-bottom: 0.75rem;
+}
+
+.atom3-live-heading i {
+  color: var(--borrowed);
+}
+
+/* Live rows reuse .atom3-subnet-row/.atom3-bit-row exactly as originally
+   defined above (interactive .bit-cell strips, .atom3-locked for the
+   verified state) — no separate read-only cell styling needed here since
+   every row is click-to-build again, not a computed display. */
+
+/* ---------- Atom 3: per-item correct/incorrect feedback ----------
+   Atom 3's total score is a sum across three separately-gradable pieces —
+   the boundary grid, the mask grid, and each individual subnet row — so a
+   single panel-level correct/incorrect edge (the .atom1-q-panel.correct/
+   .incorrect language every other Atom already uses) doesn't say WHICH
+   piece(s) were wrong. These classes are applied per-item (see
+   applyAtom3ItemFeedback in script.js) using the same inset left-edge
+   accent language as .conversion-question.correct/.incorrect, just scoped
+   to the boundary wrapper, the mask wrapper, and each subnet row
+   individually instead of the whole question. */
+.atom3-item-correct {
+  box-shadow: inset 4px 0 0 var(--success);
+}
+.atom3-item-incorrect {
+  box-shadow: inset 4px 0 0 var(--error);
+}
+/* The boundary/mask wrappers get a touch of left padding + rounded corners
+   so the inset accent reads as a deliberate border treatment rather than
+   bleeding flush into the panel's own edge. */
+.atom1-bitgrid-wrap.atom3-item-correct,
+.atom1-bitgrid-wrap.atom3-item-incorrect {
+  padding-left: 10px;
+  border-radius: var(--radius-sm);
+}
+.atom3-bit-row.atom3-item-correct,
+.atom3-bit-row.atom3-item-incorrect {
+  border-radius: 4px;
 }

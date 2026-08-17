@@ -18,7 +18,7 @@
         <div class="card login-card">
             <div class="login-header">
                 <h1>Binary &amp; IP Activity</h1>
-                <button id="settingsBtn" class="settings-icon" onclick="openSettingsModal()" title="Open Settings" aria-label="Settings">⚙️</button>
+                <button id="settingsBtn" class="settings-icon" onclick="openSettingsModal()" title="Open Settings" aria-label="Settings"><i class="fa-solid fa-gear" aria-hidden="true"></i></button>
             </div>
             <p>Convert decimal, binary, and IP/subnet values to complete each question.</p>
             <form class="input-group" onsubmit="handleLogin(); return false;">
@@ -47,7 +47,7 @@
         <div class="modal-content">
             <div class="modal-header">
                 <h2 id="settingsTitle">Settings</h2>
-                <button class="modal-close" onclick="closeSettingsModal()" aria-label="Close settings">×</button>
+                <button class="modal-close" onclick="closeSettingsModal()" aria-label="Close settings"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
             </div>
             <div class="modal-body">
                 <div class="settings-section">
@@ -119,7 +119,7 @@
     <div id="scoreSummaryModal" class="modal score-summary-modal" style="display: none;" role="dialog" aria-labelledby="scoreTitle" aria-hidden="true">
         <div class="modal-content score-summary-content">
             <div class="score-summary-header">
-                <h2 id="scoreTitle">Session Complete! 🎉</h2>
+                <h2 id="scoreTitle">Session Complete! <i class="fa-solid fa-trophy" aria-hidden="true"></i></h2>
             </div>
             <div class="score-summary-body">
                 <div class="score-display-section">
@@ -165,12 +165,12 @@
 
     <div id="appContainer" class="main-layout" style="display: none;">
         <button id="sidebarToggleBtn" class="hamburger-btn" onclick="toggleSidebar()" aria-label="Show exercise list" aria-expanded="false" aria-controls="sidebarNav">
-            <span class="hamburger-icon" aria-hidden="true">☰</span>
+            <span class="hamburger-icon" aria-hidden="true"><i class="fa-solid fa-bars"></i></span>
         </button>
         <div id="sidebarBackdrop" class="sidebar-backdrop" onclick="closeSidebar()" aria-hidden="true"></div>
 
         <nav id="sidebarNav" class="sidebar" role="navigation" aria-label="Exercise list">
-            <button id="sidebarCloseBtn" class="sidebar-close-btn" onclick="closeSidebar()" aria-label="Close exercise list">×</button>
+            <button id="sidebarCloseBtn" class="sidebar-close-btn" onclick="closeSidebar()" aria-label="Close exercise list"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
             <div class="user-info">
                 <small>Logged in as:</small>
                 <div id="userDisplay" class="user-email-pill" aria-label="Current user"></div>
@@ -191,12 +191,37 @@
                     <span><i class="fa-solid fa-diagram-project" aria-hidden="true"></i> Subnet Visualizer</span>
                     <span class="nav-tool-tag">Ungraded</span>
                 </li>
+                <li class="tools-nav-subgroup" role="presentation">
+                    <span class="tools-nav-subheader">Atoms</span>
+                    <ul role="list" class="tools-nav-sublist">
+                        <li id="nav-atom1" onclick="showAtom1Page()">
+                            <span><i class="fa-solid fa-atom" aria-hidden="true"></i> Atom 1</span>
+                            <span class="nav-score" id="score-atom1">0/6</span>
+                        </li>
+                        <li id="nav-atom2" onclick="showAtom2Page()">
+                            <span><i class="fa-solid fa-atom" aria-hidden="true"></i> Atom 2</span>
+                            <span class="nav-score" id="score-atom2">0/6</span>
+                        </li>
+                        <li id="nav-atom3" onclick="showAtom3Page()">
+                            <span><i class="fa-solid fa-atom" aria-hidden="true"></i> Atom 3</span>
+                            <span class="nav-score" id="score-atom3">0/6</span>
+                        </li>
+                        <li id="nav-atom4" onclick="showAtomPage(4)">
+                            <span><i class="fa-solid fa-atom" aria-hidden="true"></i> Atom 4</span>
+                            <span class="nav-tool-tag">Ungraded</span>
+                        </li>
+                        <li id="nav-atom5" onclick="showAtomPage(5)">
+                            <span><i class="fa-solid fa-atom" aria-hidden="true"></i> Atom 5</span>
+                            <span class="nav-tool-tag">Ungraded</span>
+                        </li>
+                    </ul>
+                </li>
             </ul>
             <h3>Exercises</h3>
             <ul id="fileList" role="list"></ul>
             <div class="sidebar-bottom">
                 <div style="padding-top: 1rem;">
-                    <button id="downloadBtn" class="secondary-btn" onclick="exportProgress()" aria-label="Download session results">📥 Download Results</button>
+                    <button id="downloadBtn" class="secondary-btn" onclick="exportProgress()" aria-label="Download session results"><i class="fa-solid fa-download" aria-hidden="true"></i> Download Results</button>
                 </div>
             </div>
         </nav>
@@ -480,6 +505,57 @@
               </section>
 
             </div>
+
+            <!-- ============================================================ -->
+            <!-- ATOM 1 — scored, full-width dedicated view (mirrors the        -->
+            <!-- Subnet Visualizer's own page structure/proportions rather      -->
+            <!-- than being squeezed into the Exercises list's .code-editor)    -->
+            <!-- ============================================================ -->
+            <div id="atom1View" class="subnetify-app atom1-app" style="display:none;">
+                <div class="card-header sv-header">
+                    <h2><i class="fa-solid fa-atom" aria-hidden="true"></i> Atom 1 · The Constraint (Bit Question)</h2>
+                    <p>Borrow exactly enough bits to satisfy each subnet or host requirement below. This is scored — every answer locks once verified, and results count toward your Total Points.</p>
+                </div>
+                <div id="atom1QuestionsContainer" class="atom1-questions-container"></div>
+            </div>
+
+            <!-- ============================================================ -->
+            <!-- ATOM 2 — scored, full-width dedicated view (mirrors Atom 1's  -->
+            <!-- own page structure/proportions exactly)                       -->
+            <!-- ============================================================ -->
+            <div id="atom2View" class="subnetify-app atom1-app" style="display:none;">
+                <div class="card-header sv-header">
+                    <h2><i class="fa-solid fa-atom" aria-hidden="true"></i> Atom 2 · The Mask Assembly (Interesting Octet)</h2>
+                    <p>Assemble the subnet mask bit by bit — click a bit to toggle it between 0 and 1. Classful network bits are locked to 1 by default. This is scored — every answer locks once verified, and results count toward your Total Points.</p>
+                </div>
+                <div id="atom2QuestionsContainer" class="atom1-questions-container"></div>
+            </div>
+
+            <!-- ============================================================ -->
+            <!-- ATOM 3 — scored, full-width dedicated view (mirrors Atom 1/2's -->
+            <!-- own page structure/proportions exactly)                       -->
+            <!-- ============================================================ -->
+            <div id="atom3View" class="subnetify-app atom1-app" style="display:none;">
+                <div class="card-header sv-header">
+                    <h2><i class="fa-solid fa-atom" aria-hidden="true"></i> Atom 3 · The Space Map (Front &amp; Back Subnets)</h2>
+                    <p>For each subnet number listed below, click bits to build its binary subnet ID — covering the first 4 and last 4 subnets of the borrowed-bit range. This is scored — every answer locks once verified, and results count toward your Total Points.</p>
+                </div>
+                <div id="atom3QuestionsContainer" class="atom1-questions-container"></div>
+            </div>
+
+            <!-- ============================================================ -->
+            <!-- ATOM PAGES — placeholder views, ungraded, under Subnetify      -->
+            <!-- ============================================================ -->
+            <div id="atomPlaceholderView" class="atom-placeholder-view" style="display:none;">
+                <div class="card-header">
+                    <h2 id="atomPlaceholderTitle">Atom 1</h2>
+                    <p>This page is coming soon.</p>
+                </div>
+                <div class="atom-placeholder-body">
+                    <i class="fa-solid fa-atom atom-placeholder-icon" aria-hidden="true"></i>
+                    <p>Content for this section hasn't been added yet — check back later.</p>
+                </div>
+            </div>
         </main>
     </div>
 
@@ -500,7 +576,7 @@
                 <span class="console-dot dot-green"></span>
             </div>
             <h2 id="sampleOutputTitle" class="console-title">Console Output</h2>
-            <button class="console-close-btn" onclick="closeSampleOutputModal()" aria-label="Close sample output">×</button>
+            <button class="console-close-btn" onclick="closeSampleOutputModal()" aria-label="Close sample output"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
         </div>
         <div class="console-body">
             <pre id="sampleOutputContent" class="console-text"></pre>

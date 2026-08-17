@@ -7,7 +7,7 @@
 const QUESTION_CONFIG = {
     // Phase 1: Decimal -> Binary
     phase1: {
-        enabled: true,
+        enabled: false,
         numQuestions: 5,
         bitWidth: 8,
         decMin: 0,
@@ -16,7 +16,7 @@ const QUESTION_CONFIG = {
 
     // Phase 2: Binary -> Decimal
     phase2: {
-        enabled: true,
+        enabled: false,
         numQuestions: 5,
         bitWidth: 8,
         decMin: 0,
@@ -25,26 +25,26 @@ const QUESTION_CONFIG = {
 
     // Phase 3: IP address, Decimal -> Binary
     phase3: {
-        enabled: true,
+        enabled: false,
         numQuestions: 4
     },
 
     // Phase 4: IP address, Binary -> Decimal
     phase4: {
-        enabled: true,
+        enabled: false,
         numQuestions: 4
     },
 
     // Phase 5: Subnet mask, CIDR -> dotted-decimal
     phase5: {
-        enabled: true,
+        enabled: false,
         numQuestions: 10,
         cidrList: "8,10,16,18,24,25,26,27,28,29,30"
     },
 
     // Phase 6: Subnet mask, dotted-decimal -> Binary
     phase6: {
-        enabled: true,
+        enabled: false,
         numQuestions: 10,
         cidrList: "8,10,16,18,24,25,26,27,28,29,30"
     },
@@ -53,8 +53,37 @@ const QUESTION_CONFIG = {
     // its default CIDR prefix based on address class (A: 1–126 -> /8,
     // B: 128–191 -> /16, C: 192–223 -> /24). Loopback (127.x) is excluded.
     phase7: {
+        enabled: false,
+        numQuestions: 10
+    },
+
+    // Atom 1: The Constraint (Bit Question) — given a classful network and
+    // a minimum subnets-OR-hosts requirement, the student borrows bits by
+    // clicking a Panel-2-style bit grid until the requirement is exactly
+    // satisfied. Scored like every other phase.
+    atom1: {
         enabled: true,
         numQuestions: 10
+    },
+
+    // Atom 2: The Mask Assembly (Interesting Octet) — given a host IP and a
+    // classless CIDR, the student assembles the subnet mask by toggling bits
+    // in a Panel-2-style grid: classful bits are locked to 1 by default,
+    // everything else starts at 0 and toggles independently on click. Graded
+    // all-or-nothing, like Atom 1 (1 point total).
+    atom2: {
+        enabled: true,
+        numQuestions: 6
+    },
+
+    // Atom 3: The Space Map (Front & Back Subnets) — given a classful
+    // network and a borrowed-bit count, the student clicks bits to build
+    // the binary subnet ID for the first 4 and last 4 subnets in that
+    // borrowed-bit range (8 rows total). Scored all-or-nothing (1 point),
+    // like Atom 2.
+    atom3: {
+        enabled: true,
+        numQuestions: 6
     },
 
     // Grading
@@ -382,7 +411,7 @@ async function handleLogin() {
         }
     } else {
         const errorEl = document.getElementById('loginError');
-        errorEl.textContent = "❌ Invalid email or student number. Please try again.";
+        errorEl.innerHTML = '<i class="fa-solid fa-circle-xmark" aria-hidden="true"></i> Invalid email or student number. Please try again.';
         errorEl.className = "error-text show";
     }
 }
@@ -582,6 +611,80 @@ function genPhase7Questions(cfg, rng) {
     }));
 }
 
+// --- ATOM 1: THE CONSTRAINT (BIT QUESTION) ---
+// Given a classful network address and a minimum subnets-OR-hosts
+// requirement, the student must borrow exactly enough bits — by clicking
+// bits in a Panel-2-style grid, not typing — to satisfy it. The graded
+// answer is the exact minimal borrowed-bit count:
+//   subnets mode: smallest N such that 2^N >= requiredSubnets
+//   hosts mode:   smallest H (host bits kept) such that 2^H - 2 >= requiredHosts,
+//                 i.e. borrow totalHostBits - H bits (as many as possible
+//                 while still meeting the host floor).
+// Reuses CLASSFUL_CIDR_RANGES (already defined above for Phase 7) so the
+// generated address is always a real classful A/B/C network.
+function genAtom1Questions(cfg, rng) {
+    if (!cfg || !cfg.enabled || !cfg.numQuestions) return [];
+    const out = [];
+    for (let i = 0; i < cfg.numQuestions; i++) {
+        const range = pickRandom(rng, CLASSFUL_CIDR_RANGES);
+        const networkBits = range.cidr;
+        const editableCount = networkBits / 8; // matches SubnetVisualizer's syncOctetLocking
+
+        // Build a classful NETWORK address (host portion zeroed), e.g.
+        // 172.20.0.0 for Class B — same convention as the visualizer's
+        // own presets (10.0.0.0 / 172.16.0.0 / 192.168.1.0).
+        const octets = [0, 0, 0, 0];
+        octets[0] = randInt(rng, range.min, range.max);
+        for (let o = 1; o < editableCount; o++) octets[o] = randInt(rng, 0, 255);
+
+        const totalHostBits = 32 - networkBits;
+        const maxBorrow = Math.max(0, 30 - networkBits); // leave >= 2 host bits, matches SubnetVisualizer's own cap
+
+        const requirementType = rng() < 0.5 ? 'subnets' : 'hosts';
+        let correctBits, requiredCount;
+
+        if (requirementType === 'subnets') {
+            const nCap = Math.min(maxBorrow, 10); // keep required-subnet counts classroom-sized
+            const nTarget = randInt(rng, 1, Math.max(1, nCap));
+            const lower = Math.pow(2, nTarget - 1) + 1;
+            const upper = Math.pow(2, nTarget);
+            requiredCount = randInt(rng, lower, upper);
+            correctBits = nTarget;
+        } else {
+            // Cap below totalHostBits so correctBits is never 0 (a
+            // zero-click question would be a degenerate exercise).
+            const hCap = Math.min(totalHostBits - 1, 12);
+            const hTarget = randInt(rng, 2, Math.max(2, hCap));
+            const lower = Math.pow(2, hTarget - 1) - 1;
+            const upper = Math.pow(2, hTarget) - 2;
+            requiredCount = randInt(rng, Math.max(1, lower), Math.max(1, upper));
+            correctBits = totalHostBits - hTarget;
+        }
+
+        const ipStr = octets.join('.');
+        const promptHtml = requirementType === 'subnets'
+            ? `A network engineer is assigned the <b>Class ${range.cls}</b> network <b>${ipStr}</b> (classful <b>/${networkBits}</b>) and must support at least <b>${requiredCount}</b> subnet${requiredCount === 1 ? '' : 's'}. Click bits in the grid below to borrow exactly enough network bits, then verify.`
+            : `A network engineer is assigned the <b>Class ${range.cls}</b> network <b>${ipStr}</b> (classful <b>/${networkBits}</b>) and each subnet must support at least <b>${requiredCount}</b> usable host${requiredCount === 1 ? '' : 's'}. Click bits in the grid below to borrow just enough network bits — leaving just enough host bits behind — then verify.`;
+
+        out.push({
+            type: 'atom1',
+            octets,
+            classLabel: range.cls,
+            networkBits,
+            totalHostBits,
+            maxBorrow,
+            requirementType,
+            requiredCount,
+            correctBits,
+            correctCidr: networkBits + correctBits,
+            promptHtml,
+            correct: String(correctBits),
+            given: ipStr
+        });
+    }
+    return out;
+}
+
 function questionTypeLabel(type) {
     switch (type) {
         case 'd2b': return 'Dec→Bin';
@@ -591,6 +694,9 @@ function questionTypeLabel(type) {
         case 'mask_c2d': return 'CIDR→Mask';
         case 'mask_d2b': return 'Mask→Bin';
         case 'class_cidr': return 'Class→CIDR';
+        case 'atom1': return 'Bit Question';
+        case 'atom2': return 'Mask Assembly';
+        case 'atom3': return 'Space Map';
         default: return '';
     }
 }
@@ -661,6 +767,196 @@ function buildConversionQuestions(seedStr) {
         q
     }));
     return list;
+}
+
+// --- ATOM 1: separate question list for its own dedicated full-width view ---
+// Deliberately NOT part of buildConversionQuestions' returned list — Atom 1
+// lives in its own page (see showAtom1Page/renderAtom1View below), not the
+// Exercises sidebar, so it needs its own item list with the same shape
+// (name/phase/label/shortLabel/q) but drawn from an independent RNG stream
+// (seed suffixed with '::atom1'). That keeps it fully decoupled: adding,
+// removing, or reconfiguring Atom 1 questions can never shift the random
+// sequence any other phase draws from, and vice versa.
+function buildAtom1QuestionList(seedStr) {
+    const rng = mulberry32(hashStringToSeed((seedStr || '') + '::atom1'));
+    const atom1Questions = genAtom1Questions(QUESTION_CONFIG.atom1, rng);
+    return atom1Questions.map((q, i) => ({
+        name: `atom1-q${i + 1}`,
+        phase: 'Atom 1 · The Constraint (Bit Question)',
+        label: `Atom 1 – Q${i + 1} (${questionTypeLabel(q.type)})`,
+        shortLabel: `Q${i + 1} · ${questionTypeLabel(q.type)}`,
+        q
+    }));
+}
+
+// --- ATOM 2: THE MASK ASSEMBLY (INTERESTING OCTET) ---
+// Given a host IP address and a classless CIDR prefix, the student
+// assembles the subnet mask directly: classful network bits (Class A/B/C's
+// default 8/16/24) are locked to 1, and every bit beyond that starts at 0
+// and toggles independently on click (unlike Atom 1's "click sets the
+// boundary" behavior — here each bit is its own decision). The correct
+// answer is simply the standard mask for the given CIDR. Reuses
+// CLASSFUL_CIDR_RANGES (see Phase 7 / Atom 1 above) for a real classful
+// A/B/C starting point.
+function genAtom2Questions(cfg, rng) {
+    if (!cfg || !cfg.enabled || !cfg.numQuestions) return [];
+    const out = [];
+    const maxCidr = 30; // leave >= 2 host bits, same convention as Atom 1's maxBorrow cap
+
+    for (let i = 0; i < cfg.numQuestions; i++) {
+        const range = pickRandom(rng, CLASSFUL_CIDR_RANGES);
+        const networkBits = range.cidr;
+
+        // A full random host IP (not a zeroed network address) — Atom 2's
+        // scenario is "given this host's address and CIDR," matching the
+        // Project Brief's Atom 2 framing.
+        const octets = [randInt(rng, range.min, range.max), randInt(rng, 0, 255), randInt(rng, 0, 255), randInt(rng, 0, 255)];
+
+        // Pick a classless CIDR that borrows at least 1 bit and never lands
+        // exactly on an octet boundary, so there's always a genuine mixed
+        // "interesting octet" to assemble (matching the Project Brief's
+        // 224 example) rather than an all-255-or-0 mask.
+        let targetCidr;
+        let attempts = 0;
+        do {
+            const n = randInt(rng, 1, Math.max(1, maxCidr - networkBits));
+            targetCidr = networkBits + n;
+            attempts++;
+        } while (targetCidr % 8 === 0 && attempts < 50);
+        if (targetCidr % 8 === 0) targetCidr = Math.min(maxCidr, targetCidr + 1);
+
+        const maskBits = '1'.repeat(targetCidr) + '0'.repeat(32 - targetCidr);
+        const maskOctets = [0, 1, 2, 3].map(g => parseInt(maskBits.substr(g * 8, 8), 2));
+        const correct = maskOctets.join('.');
+        const ipStr = octets.join('.');
+
+        // Kept deliberately brief: the general "how to assemble the mask /
+        // classful bits are locked" instructions already live once in the
+        // Atom 2 page header (see #atom2View's card-header in index.html),
+        // so each question only needs the two facts that actually change
+        // from question to question — the given host IP and target CIDR.
+        // Class and the classful network-bit count are intentionally
+        // omitted: the grid's own locked (blue) bits already show exactly
+        // which bits are fixed, so restating that in words is redundant.
+        const promptHtml = `Assemble the subnet mask for <b>${ipStr}/${targetCidr}</b>.`;
+
+        out.push({
+            type: 'atom2',
+            octets,
+            classLabel: range.cls,
+            networkBits,
+            targetCidr,
+            promptHtml,
+            correct,
+            given: ipStr
+        });
+    }
+    return out;
+}
+
+// Separate question list for Atom 2's own dedicated view — same rationale
+// as buildAtom1QuestionList: not part of buildConversionQuestions' sidebar
+// list, and drawn from its own independent RNG stream (seed suffixed with
+// '::atom2') so it can never shift any other phase's/atom's sequence.
+function buildAtom2QuestionList(seedStr) {
+    const rng = mulberry32(hashStringToSeed((seedStr || '') + '::atom2'));
+    const atom2Questions = genAtom2Questions(QUESTION_CONFIG.atom2, rng);
+    return atom2Questions.map((q, i) => ({
+        name: `atom2-q${i + 1}`,
+        phase: 'Atom 2 · The Mask Assembly (Interesting Octet)',
+        label: `Atom 2 – Q${i + 1} (${questionTypeLabel(q.type)})`,
+        shortLabel: `Q${i + 1} · ${questionTypeLabel(q.type)}`,
+        q
+    }));
+}
+
+// --- ATOM 3: THE SPACE MAP (FRONT & BACK SUBNETS) ---
+// Given a classful network address and a TARGET classless CIDR (e.g.
+// 172.20.5.0/26), the student must figure out — and then click, exactly
+// like Atom 1's own boundary-setting bit grid — how many bits that target
+// implies borrowing. Nothing here states the borrowed-bit count in words;
+// it's implied entirely by the gap between the classful network bits
+// (locked, derived from class) and the given target CIDR, so the student
+// has to read the class off the address and do networkBits -> targetCidr
+// subtraction themselves. As the boundary moves, a live subnet-ID list
+// below (see buildAtom3SubnetListHtml) recomputes from whatever borrowed-
+// bit count is CURRENTLY selected — a self-check aid, not a separate
+// answer surface; only the grid's final boundary position is graded.
+//
+// Class is weighted toward C, then B, then A for practice: Class C's
+// single, always-editable last octet is by far the easiest to visualize
+// bit-borrowing in, Class B is a step up, and Class A (24 bits of
+// borrowable host space) is the hardest to reason about — so it's seen
+// least often while still appearing.
+const ATOM3_CLASS_WEIGHTS = [
+    { range: CLASSFUL_CIDR_RANGES[2], weight: 0.55 }, // C
+    { range: CLASSFUL_CIDR_RANGES[1], weight: 0.30 }, // B
+    { range: CLASSFUL_CIDR_RANGES[0], weight: 0.15 }  // A
+];
+
+function pickAtom3ClassRange(rng) {
+    const r = rng();
+    let acc = 0;
+    for (const entry of ATOM3_CLASS_WEIGHTS) {
+        acc += entry.weight;
+        if (r < acc) return entry.range;
+    }
+    return ATOM3_CLASS_WEIGHTS[ATOM3_CLASS_WEIGHTS.length - 1].range;
+}
+
+function genAtom3Questions(cfg, rng) {
+    if (!cfg || !cfg.enabled || !cfg.numQuestions) return [];
+    const out = [];
+    const maxBorrowCap = 10; // keep the target CIDR classroom-sized regardless of class
+
+    for (let i = 0; i < cfg.numQuestions; i++) {
+        const range = pickAtom3ClassRange(rng);
+        const networkBits = range.cidr;
+        const editableCount = networkBits / 8; // matches Atom 1/2's own classful-address convention
+
+        const octets = [0, 0, 0, 0];
+        octets[0] = randInt(rng, range.min, range.max);
+        for (let o = 1; o < editableCount; o++) octets[o] = randInt(rng, 0, 255);
+
+        // At least 3 borrowed bits guarantees >= 8 subnets, which is the
+        // minimum needed for "first 4" (indices 0-3) and "last 4" (the
+        // top 4 indices) to never overlap in the live list below.
+        const maxBorrow = Math.max(0, 30 - networkBits); // leave >= 2 host bits, same convention as Atom 1
+        const borrowedBits = randInt(rng, 3, Math.max(3, Math.min(maxBorrow, maxBorrowCap)));
+        const targetCidr = networkBits + borrowedBits;
+
+        const ipStr = octets.join('.');
+        const promptHtml = `A network engineer needs the classless network <b>${ipStr}/${targetCidr}</b>. First, click bits in the grid below to borrow exactly enough network bits to reach that CIDR. Next, assemble the matching subnet mask bit by bit. Finally, build the binary subnet ID for each subnet listed underneath by clicking its own bits — its full network address updates live as you go.`;
+
+        out.push({
+            type: 'atom3',
+            octets,
+            classLabel: range.cls,
+            networkBits,
+            maxBorrow,
+            targetCidr,
+            correctBits: borrowedBits,
+            promptHtml,
+            correct: String(borrowedBits),
+            given: ipStr
+        });
+    }
+    return out;
+}
+
+// Separate question list for Atom 3's own dedicated view — same rationale
+// as buildAtom1QuestionList/buildAtom2QuestionList, drawn from its own
+// independent RNG stream (seed suffixed with '::atom3').
+function buildAtom3QuestionList(seedStr) {
+    const rng = mulberry32(hashStringToSeed((seedStr || '') + '::atom3'));
+    const atom3Questions = genAtom3Questions(QUESTION_CONFIG.atom3, rng);
+    return atom3Questions.map((q, i) => ({
+        name: `atom3-q${i + 1}`,
+        phase: 'Atom 3 · The Space Map (Front & Back Subnets)',
+        label: `Atom 3 – Q${i + 1} (${questionTypeLabel(q.type)})`,
+        shortLabel: `Q${i + 1} · ${questionTypeLabel(q.type)}`,
+        q
+    }));
 }
 
 async function loadAllExercises() {
@@ -738,6 +1034,35 @@ async function loadAllExercises() {
         updateSidebarScore(item.name);
         updateSummaryPanel();
     }
+
+    // --- Atom 1: scored, but lives in its own full-width view (see
+    // showAtom1Page/renderAtom1View), not the Exercises sidebar list built
+    // above. Its exerciseData entries still live in the same `exerciseData`
+    // object as everything else, so scoring, exam persistence, and the
+    // sidebar's overall Total Points all pick it up automatically with no
+    // special-casing needed there.
+    const atom1List = buildAtom1QuestionList(seedStr);
+    atom1List.forEach(item => {
+        exerciseData[item.name] = buildConversionExerciseData(item);
+    });
+    renderAtom1View(atom1List);
+
+    // --- Atom 2: scored, dedicated full-width view (see showAtom2Page/
+    // renderAtom2View), same pattern as Atom 1 immediately above.
+    const atom2List = buildAtom2QuestionList(seedStr);
+    atom2List.forEach(item => {
+        exerciseData[item.name] = buildConversionExerciseData(item);
+    });
+    renderAtom2View(atom2List);
+
+    // --- Atom 3: scored, dedicated full-width view (see showAtom3Page/
+    // renderAtom3View), same pattern as Atom 1/2 immediately above.
+    const atom3List = buildAtom3QuestionList(seedStr);
+    atom3List.forEach(item => {
+        exerciseData[item.name] = buildConversionExerciseData(item);
+    });
+    renderAtom3View(atom3List);
+
     document.getElementById('loader').style.display = 'none';
 
     // --- Restore any persisted exam-mode progress for this student ---
@@ -762,6 +1087,15 @@ async function loadAllExercises() {
             }
         }
     }
+
+    // Reflect any restored/expired lock state (set above, generically, on
+    // every exerciseData entry) onto the Atom 1 view's own DOM — unlike the
+    // Exercises list, which lazily re-renders per exercise on click via
+    // switchExercise, the Atom 1 view renders every question up front, so
+    // it needs an explicit pass here to pick up locked/score/userAnswer.
+    syncAtom1ViewDOM();
+    syncAtom2ViewDOM();
+    syncAtom3ViewDOM();
 
     const firstQuestionItem = list.querySelector('li:not(.sidebar-phase-header)');
     if (firstQuestionItem) firstQuestionItem.click();
@@ -916,10 +1250,10 @@ function parseJavaCode(raw) {
         const originalIdx = shuffledIndices[idx];
         
         codeAreaHtml += `<div class="draggable-line" draggable="true" data-original-idx="${originalIdx}">
-                            <span class="drag-handle">⋮⋮</span>
+                            <span class="drag-handle"><i class="fa-solid fa-grip-vertical" aria-hidden="true"></i></span>
                             <div class="updown-buttons">
-                                <button type="button" class="move-up-btn" aria-label="Move line up">▲</button>
-                                <button type="button" class="move-down-btn" aria-label="Move line down">▼</button>
+                                <button type="button" class="move-up-btn" aria-label="Move line up"><i class="fa-solid fa-chevron-up" aria-hidden="true"></i></button>
+                                <button type="button" class="move-down-btn" aria-label="Move line down"><i class="fa-solid fa-chevron-down" aria-hidden="true"></i></button>
                             </div>
                             <code>${line}</code>
                         </div>`;
@@ -976,10 +1310,61 @@ function buildConversionExerciseData(item) {
     // are graded per octet — 4 "lines" so 1 point per octet, up to 4 points
     // total — instead of a single all-or-nothing point. Everything else
     // (mask questions, individual dec/bin questions) stays at 1 point.
+    // Atom 2 is graded all-or-nothing (1 point), like Atom 1 — the full
+    // 32-bit mask either matches the target CIDR's mask or it doesn't;
+    // there's no partial-credit notion of "which octet was right" the way
+    // there is for the IP-address conversion questions below.
     const isOctetScored = (q.type === 'ip_d2b' || q.type === 'ip_b2d');
-    return {
+    // Atom 3 is graded per answerable item, not all-or-nothing: the
+    // boundary grid, the assembled mask, and each subnet row shown for
+    // the TARGET (correct) borrowed-bit count each earn their own point.
+    // Computed here (rather than assuming a fixed count) since the number
+    // of subnet rows depends on the question's own correctBits.
+    const atom3AnswerCount = q.type === 'atom3' ? (2 + atom3SubnetIndicesForBorrowed(q.correctBits).length) : null;
+    // Atom 1 questions carry extra fields the bit-grid renderer/handlers
+    // need at interaction time (networkBits/maxBorrow to clamp clicks,
+    // requirementType/requiredCount/totalHostBits to drive the live
+    // formula box). Everything else keeps the same shape every other
+    // conversion question already uses.
+    const atom1Extra = q.type === 'atom1' ? {
+        octets: q.octets,
+        classLabel: q.classLabel,
+        networkBits: q.networkBits,
+        totalHostBits: q.totalHostBits,
+        maxBorrow: q.maxBorrow,
+        requirementType: q.requirementType,
+        requiredCount: q.requiredCount,
+        correctBits: q.correctBits,
+        correctCidr: q.correctCidr
+    } : {};
+    // Atom 2 questions carry the fields its grid/panel needs: the given
+    // host IP octets, class, classful networkBits (drives the locked
+    // portion of the grid), and the target classless CIDR (shown in the
+    // prompt/Panel 1 only — never re-derived from or displayed on the grid
+    // itself).
+    const atom2Extra = q.type === 'atom2' ? {
+        octets: q.octets,
+        classLabel: q.classLabel,
+        networkBits: q.networkBits,
+        targetCidr: q.targetCidr
+    } : {};
+    // Atom 3 questions carry the fields its boundary-setting grid needs —
+    // the same shape as Atom 1's own extra fields (octets/networkBits/
+    // maxBorrow clamp the clickable range), plus the static targetCidr
+    // shown as given information in Panel 1.
+    const atom3Extra = q.type === 'atom3' ? {
+        octets: q.octets,
+        classLabel: q.classLabel,
+        networkBits: q.networkBits,
+        maxBorrow: q.maxBorrow,
+        targetCidr: q.targetCidr,
+        correctBits: q.correctBits
+    } : {};
+    return Object.assign({
         html: renderQuestionHtml(item.name, q),
-        answers: isOctetScored ? [[], [], [], []] : [[q.correct]], // length drives the score denominator everywhere (sidebar, summary, exam completion)
+        answers: isOctetScored
+            ? [[], [], [], []]
+            : (q.type === 'atom3' ? Array.from({ length: atom3AnswerCount }, () => []) : [[q.correct]]), // length drives the score denominator everywhere (sidebar, summary, exam completion)
         correct: q.correct,
         type: q.type,
         bitWidth: q.bitWidth,
@@ -995,7 +1380,7 @@ function buildConversionExerciseData(item) {
         isPartial: false,
         isConversionQuestion: true,
         isLineOrdering: false
-    };
+    }, atom1Extra, atom2Extra, atom3Extra);
 }
 
 function renderBitGroup(qid, width) {
@@ -1156,7 +1541,1857 @@ function renderClassCidrInput(qid, ip) {
     return `<span class="cidr-ip-text">${ip}</span><span class="cidr-slash">/</span><input type="text" class="answer-input-num cidr-answer-input" data-qid="${qid}" maxlength="2" inputmode="numeric" style="${lineStyle}">`;
 }
 
+/* =========================================================
+   ATOM 1: THE CONSTRAINT (BIT QUESTION) — rendering & interaction
+   Reuses the exact CSS component language SubnetVisualizer's Panel 1
+   (class + octet display), Panel 2 (interactive 32-bit grid), and the
+   Panel 4/5 formula-box use — those class names (.bit-grid, .bit-cell,
+   .octet-block, .weight-row-main, .formula-box, .class-value,
+   .octet-field, .badge-borrow, ...) are plain global selectors in
+   styles.css, not scoped to the visualizer's own DOM, so this question
+   type can use them directly inside the normal .code-editor question
+   card. The actual click/render logic here is a small, self-contained
+   parallel to SubnetVisualizer's onBitClick/renderPanel2 (that engine's
+   own helpers are private to its IIFE), scoped with an "atom1" prefix so
+   nothing here collides with SubnetVisualizer's internals.
+========================================================= */
+function atom1ToBinary8(n) {
+    const v = Math.max(0, Math.min(255, Number(n) || 0));
+    return v.toString(2).padStart(8, '0').split('').map(Number);
+}
+function atom1OctetsToBits(octets) {
+    return octets.flatMap(atom1ToBinary8);
+}
+function atom1BitsToOctet(bitsArr) {
+    return parseInt(bitsArr.join(''), 2);
+}
+
+// Builds the inner HTML of the 32-bit grid for a given borrowed-bit count.
+// Bits before networkBits are locked (blue, non-clickable — classful
+// network portion); the rest are borrowed (amber) up to
+// networkBits+borrowedBits, then host (green) — identical color/role
+// language to SubnetVisualizer's own Panel 2.
+function renderAtom1BitGridInner(qid, inputBits, networkBits, borrowedBits) {
+    const totalBorrowEnd = networkBits + borrowedBits;
+    // Same live prefix SubnetVisualizer's own Panel 2 attaches to its last
+    // octet — classful network bits plus however many have been borrowed
+    // so far, so it updates in place as bits are clicked.
+    const totalPrefix = networkBits + borrowedBits;
+    let html = '';
+    for (let g = 0; g < 4; g++) {
+        const bitsSlice = inputBits.slice(g * 8, g * 8 + 8);
+        const kindsSlice = bitsSlice.map((_, k) => {
+            const gi = g * 8 + k;
+            if (gi < networkBits) return 'locked';
+            if (gi < totalBorrowEnd) return 'borrowed';
+            return 'host';
+        });
+
+        html += '<div class="octet-block">';
+        // Octet 4 mirrors SubnetVisualizer.renderPanel2: the live CIDR
+        // suffix rides right alongside the last octet's total ("0/24"),
+        // not just up in the Panel-1 network row / borrow badge — this is
+        // the piece Atom 1's grid was missing versus Subnetify's own.
+        if (g === 3) {
+            html += '<div class="octet-total-cidr-wrap">' +
+                        '<div class="octet-total octet-total-main">' + atom1BitsToOctet(bitsSlice) + '</div>' +
+                        '<span class="decimal-cidr-suffix cidr-suffix-viz">/' + totalPrefix + '</span>' +
+                    '</div>';
+        } else {
+            html += '<div class="octet-total octet-total-main">' + atom1BitsToOctet(bitsSlice) +
+                '<span class="octet-total-dot">.</span></div>';
+        }
+
+        html += '<div class="weight-row weight-row-main">';
+        OCTET_BIT_PLACE_VALUES.forEach((w, k) => {
+            const lit = bitsSlice[k] === 1;
+            const cls = lit ? ('weight-num weight-lit weight-lit-' + kindsSlice[k]) : 'weight-num weight-muted';
+            html += '<span class="' + cls + '">' + w + '</span>';
+        });
+        html += '</div>';
+
+        html += '<div class="bit-octet-group">';
+        for (let b = 0; b < 8; b++) {
+            const gi = g * 8 + b;
+            const kind = kindsSlice[b];
+            html += '<div class="bit-cell ' + kind + '" data-idx="' + gi + '"' +
+                (kind !== 'locked' ? ' role="button" tabindex="0" title="Click to set the subnet boundary here"' : '') + '>' +
+                (kind === 'locked' ? '<span class="lock-icon"><i class="fa-solid fa-lock"></i></span>' : '') +
+                '<span class="bit-value">' + bitsSlice[b] + '</span>' +
+                '</div>';
+        }
+        html += '</div>';
+
+        html += '<div class="octet-viz-label">Octet ' + (g + 1) + '</div>';
+        html += '</div>';
+
+        if (g < 3) html += '<div class="octet-dot-separator">.</div>';
+    }
+    return html;
+}
+
+// Live formula content (Panel 4/5 formula-box visual language): recomputes
+// from the CURRENT borrowed-bit count, not the correct answer, so it's a
+// self-check aid rather than an answer key — mirrors how SubnetVisualizer's
+// own formula boxes always reflect current state.borrowedBits.
+function buildAtom1FormulaContent(qOrEx, borrowedBits) {
+    if (qOrEx.requirementType === 'subnets') {
+        const totalSubnets = Math.pow(2, borrowedBits);
+        const meets = totalSubnets >= qOrEx.requiredCount;
+        return '<span class="formula-line"><span class="formula-term">Total Subnets</span> = 2<sup>borrowed bits</sup> = 2<sup>' + borrowedBits + '</sup> = ' +
+            '<span class="formula-highlight-subnet">' + totalSubnets + '</span></span>' +
+            '<span class="formula-note">Requirement: at least ' + qOrEx.requiredCount + ' subnet' + (qOrEx.requiredCount === 1 ? '' : 's') + '. Currently ' +
+            (meets ? 'satisfied ✓' : 'not yet satisfied ✗') + '.</span>';
+    }
+    const hostBitsLeft = qOrEx.totalHostBits - borrowedBits;
+    const totalHosts = Math.pow(2, Math.max(0, hostBitsLeft));
+    const usable = Math.max(0, totalHosts - 2);
+    const meets = usable >= qOrEx.requiredCount;
+    return '<span class="formula-line"><span class="formula-term">Usable Hosts</span> = 2<sup>host bits</sup> &minus; 2 = 2<sup>' + hostBitsLeft + '</sup> &minus; 2 = ' +
+        '<span class="formula-highlight-host">' + usable + '</span></span>' +
+        '<span class="formula-note">Requirement: at least ' + qOrEx.requiredCount + ' usable host' + (qOrEx.requiredCount === 1 ? '' : 's') + ' per subnet. Currently ' +
+        (meets ? 'satisfied ✓' : 'not yet satisfied ✗') + '.</span>';
+}
+
+function renderAtom1FormulaBox(qid, q, borrowedBits) {
+    const cls = q.requirementType === 'subnets' ? 'formula-box-subnet' : 'formula-box-host';
+    return '<div class="formula-box ' + cls + ' atom1-formula-box" id="atom1FormulaBox-' + qid + '">' +
+        buildAtom1FormulaContent(q, borrowedBits) + '</div>';
+}
+
+// Re-renders the grid + borrow badge + (if present) formula box for a new
+// borrowed-bit count. Called on every click and on restore.
+function updateAtom1Grid(qid, ex, borrowedBits) {
+    const grid = document.getElementById('atom1BitGrid-' + qid);
+    if (!grid) return;
+    const inputBits = atom1OctetsToBits(ex.octets);
+    grid.dataset.borrowed = String(borrowedBits);
+    grid.innerHTML = renderAtom1BitGridInner(qid, inputBits, ex.networkBits, borrowedBits);
+
+    const badge = document.getElementById('atom1BorrowBadge-' + qid);
+    if (badge) {
+        badge.innerHTML = '<span>' + borrowedBits + ' bit' + (borrowedBits === 1 ? '' : 's') + ' borrowed &rarr; /' + (ex.networkBits + borrowedBits) + '</span>';
+    }
+
+    const formulaBox = document.getElementById('atom1FormulaBox-' + qid);
+    if (formulaBox) formulaBox.innerHTML = buildAtom1FormulaContent(ex, borrowedBits);
+}
+
+function renderAtom1QuestionHtml(qid, q) {
+    const inputBits = atom1OctetsToBits(q.octets);
+
+    const octetsHtml = q.octets.map((o, i) => {
+        const dot = i < 3 ? '<span class="dot">.</span>' : '';
+        return '<div class="octet-field"><span class="octet-label">Octet ' + (i + 1) + '</span><div class="atom1-octet-value">' + o + '</div></div>' + dot;
+    }).join('');
+
+    const panel1Html =
+        '<div class="atom1-panel1">' +
+            '<div class="octet-input-row atom1-octet-row">' +
+                '<div class="octet-field class-field">' +
+                    '<span class="octet-label">Class</span>' +
+                    '<span class="class-value">' + q.classLabel + '</span>' +
+                '</div>' +
+                '<span class="row-divider" aria-hidden="true">|</span>' +
+                octetsHtml +
+                '<span class="decimal-cidr-suffix octet-row-cidr-suffix">/' + q.networkBits + '</span>' +
+            '</div>' +
+        '</div>';
+
+    const gridHtml =
+        '<div class="atom1-bitgrid-wrap">' +
+            '<div class="badge badge-borrow atom1-borrow-badge" id="atom1BorrowBadge-' + qid + '">' +
+                '<span>0 bits borrowed &rarr; /' + q.networkBits + '</span>' +
+            '</div>' +
+            '<div class="bit-grid atom1-bitgrid" id="atom1BitGrid-' + qid + '" data-qid="' + qid + '" data-network-bits="' + q.networkBits + '" data-max-borrow="' + q.maxBorrow + '" data-borrowed="0">' +
+                renderAtom1BitGridInner(qid, inputBits, q.networkBits, 0) +
+            '</div>' +
+            '<div class="legend secondary-copy">' +
+                '<span><i class="swatch swatch-locked"></i> Locked network bit</span>' +
+                '<span><i class="swatch swatch-borrowed"></i> Borrowed subnet bit</span>' +
+                '<span><i class="swatch swatch-host"></i> Host bit</span>' +
+            '</div>' +
+        '</div>';
+
+    // Formula stays visible throughout Practice Mode (so the student only
+    // has to click bits and self-check against the live numbers); Exam
+    // Mode hides it, same principle as hiding bit place-value labels there.
+    const formulaHtml = (appSettings.mode === 'practice') ? renderAtom1FormulaBox(qid, q, 0) : '';
+
+    return '<div class="conversion-question atom1-question" data-qid="' + qid + '">' +
+                '<div class="conversion-prompt">' + q.promptHtml + '</div>' +
+                panel1Html +
+                gridHtml +
+                formulaHtml +
+            '</div>';
+}
+
+// Delegated click/keyboard handling for one question's bit grid. Clicking
+// any unlocked bit sets borrowedBits = thatBitIndex - networkBits + 1,
+// exactly mirroring SubnetVisualizer's own onBitClick — clicking near the
+// boundary shrinks the borrowed range, clicking further out grows it.
+function attachAtom1Handlers(qid, ex) {
+    const grid = document.getElementById('atom1BitGrid-' + qid);
+    if (!grid) return;
+
+    const handleActivate = (cell) => {
+        // Keyed off the qid this grid actually belongs to, NOT currentFile —
+        // Atom 1's dedicated view renders every question at once, so there
+        // is no single "current" exercise the way the Exercises list has.
+        if (exerciseData[qid]?.locked) return;
+        if (!cell || cell.classList.contains('locked')) return;
+        const idx = parseInt(cell.dataset.idx, 10);
+        let newBorrowed = idx - ex.networkBits + 1;
+        newBorrowed = Math.max(0, Math.min(newBorrowed, ex.maxBorrow));
+        updateAtom1Grid(qid, ex, newBorrowed);
+        saveAtom1Progress(qid);
+    };
+
+    grid.addEventListener('click', (e) => {
+        handleActivate(e.target.closest('.bit-cell'));
+    });
+    grid.addEventListener('keydown', (e) => {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        const cell = e.target.closest && e.target.closest('.bit-cell');
+        if (!cell) return;
+        e.preventDefault();
+        handleActivate(cell);
+    });
+}
+
+/* =========================================================
+   ATOM 1: DEDICATED FULL-WIDTH VIEW
+   Renders every Atom 1 question as its own full-size .panel — the exact
+   component the Subnet Visualizer itself uses — stacked on one continuous
+   scrollable page, rather than squeezed into the Exercises list's narrow
+   .code-editor card. Panel-1-style given network, Panel-2-style bit grid,
+   and the formula box are all reused as-is (renderAtom1BitGridInner,
+   renderAtom1FormulaBox, updateAtom1Grid, above); this section only adds
+   the page shell, per-question score badge, and independent Verify/Reset
+   + feedback controls this view needs since nothing here is routed
+   through the shared #actionButton/#feedback the Exercises list uses.
+========================================================= */
+
+// Guards against attaching the delegated verify/reset click listener more
+// than once — the container's innerHTML is rebuilt on every login (fresh
+// question set), but the container element itself persists, so the
+// listener only needs to be attached the first time.
+let atom1ActionsDelegated = false;
+
+function buildAtom1PanelHtml(qid, ex, index) {
+    const inputBits = atom1OctetsToBits(ex.octets);
+
+    const octetsHtml = ex.octets.map((o, i) => {
+        const dot = i < 3 ? '<span class="dot">.</span>' : '';
+        return '<div class="octet-field"><span class="octet-label">Octet ' + (i + 1) + '</span><div class="atom1-octet-value">' + o + '</div></div>' + dot;
+    }).join('');
+
+    const panel1Html =
+        '<div class="atom1-panel1">' +
+            '<div class="octet-input-row atom1-octet-row">' +
+                '<div class="octet-field class-field">' +
+                    '<span class="octet-label">Class</span>' +
+                    '<span class="class-value">' + ex.classLabel + '</span>' +
+                '</div>' +
+                '<span class="row-divider" aria-hidden="true">|</span>' +
+                octetsHtml +
+                '<span class="decimal-cidr-suffix octet-row-cidr-suffix">/' + ex.networkBits + '</span>' +
+            '</div>' +
+        '</div>';
+
+    const gridHtml =
+        '<div class="atom1-bitgrid-wrap">' +
+            '<div class="badge badge-borrow atom1-borrow-badge" id="atom1BorrowBadge-' + qid + '">' +
+                '<span>0 bits borrowed &rarr; /' + ex.networkBits + '</span>' +
+            '</div>' +
+            '<div class="bit-grid atom1-bitgrid" id="atom1BitGrid-' + qid + '" data-qid="' + qid + '" data-network-bits="' + ex.networkBits + '" data-max-borrow="' + ex.maxBorrow + '" data-borrowed="0">' +
+                renderAtom1BitGridInner(qid, inputBits, ex.networkBits, 0) +
+            '</div>' +
+            '<div class="legend secondary-copy">' +
+                '<span><i class="swatch swatch-locked"></i> Locked network bit</span>' +
+                '<span><i class="swatch swatch-borrowed"></i> Borrowed subnet bit</span>' +
+                '<span><i class="swatch swatch-host"></i> Host bit</span>' +
+            '</div>' +
+        '</div>';
+
+    // Formula stays visible throughout Practice Mode (self-check aid);
+    // Exam Mode hides it, same principle as hiding bit place-value labels
+    // elsewhere in exam mode.
+    const formulaHtml = (appSettings.mode === 'practice') ? renderAtom1FormulaBox(qid, ex, 0) : '';
+
+    return (
+        '<section class="panel atom1-q-panel" id="atom1QPanel-' + qid + '" data-qid="' + qid + '">' +
+            '<div class="panel-head">' +
+                '<span class="panel-index">Q' + index + '</span>' +
+                '<h2>' + (ex.requirementType === 'subnets' ? 'Subnet Requirement' : 'Host Requirement') + '</h2>' +
+                '<span class="badge atom1-score-badge" id="atom1ScoreBadge-' + qid + '">0/1</span>' +
+            '</div>' +
+            '<div class="conversion-prompt">' + ex.promptHtml + '</div>' +
+            panel1Html +
+            gridHtml +
+            formulaHtml +
+            '<div class="atom1-actions">' +
+                '<button class="primary-btn atom1-verify-btn" data-qid="' + qid + '">Verify Answer</button>' +
+                '<div class="atom1-feedback" id="atom1Feedback-' + qid + '" role="status" aria-live="polite"></div>' +
+            '</div>' +
+        '</section>'
+    );
+}
+
+// Builds the full Atom 1 page from scratch (called once per login) and
+// wires up each question's bit-grid interaction plus a single delegated
+// click listener for every Verify/Reset button on the page.
+function renderAtom1View(atom1List) {
+    const container = document.getElementById('atom1QuestionsContainer');
+    if (!container) return;
+
+    container.innerHTML = atom1List
+        .map((item, i) => buildAtom1PanelHtml(item.name, exerciseData[item.name], i + 1))
+        .join('');
+
+    atom1List.forEach(item => {
+        attachAtom1Handlers(item.name, exerciseData[item.name]);
+    });
+
+    if (!atom1ActionsDelegated) {
+        atom1ActionsDelegated = true;
+        container.addEventListener('click', (e) => {
+            const btn = e.target.closest('.atom1-verify-btn');
+            if (!btn) return;
+            const qid = btn.dataset.qid;
+            const ex = exerciseData[qid];
+            if (!ex) return;
+            if (ex.locked) {
+                resetAtom1Question(qid);
+            } else {
+                verifyAtom1Question(qid);
+            }
+        });
+    }
+}
+
+// Persists the in-progress borrowed-bit count for one Atom 1 question
+// (analogous to saveConversionProgress, but keyed off the question's own
+// qid rather than the single global currentFile).
+function saveAtom1Progress(qid) {
+    const ex = exerciseData[qid];
+    if (!ex || ex.locked) return;
+    const grid = document.getElementById('atom1BitGrid-' + qid);
+    ex.userAnswer = grid ? (grid.dataset.borrowed || '0') : (ex.userAnswer || '');
+    if (appSettings.mode === 'exam') saveExamSession();
+}
+
+// Sets the Verify/Reset/Locked button label + disabled state for one
+// question, matching the same rules the shared #actionButton follows:
+// locked + practice -> "Reset" (enabled); locked + exam -> "Locked"
+// (disabled); unlocked -> "Verify Answer".
+function setAtom1ButtonState(qid) {
+    const ex = exerciseData[qid];
+    const btn = document.querySelector('.atom1-verify-btn[data-qid="' + qid + '"]');
+    if (!btn || !ex) return;
+    if (ex.locked) {
+        if (appSettings.mode === 'practice') {
+            btn.textContent = 'Reset';
+            btn.disabled = false;
+        } else {
+            btn.textContent = 'Locked';
+            btn.disabled = true;
+        }
+    } else {
+        btn.textContent = 'Verify Answer';
+        btn.disabled = false;
+    }
+}
+
+// Renders this question's per-question feedback message, reusing the same
+// buildFeedbackForExercise/renderFeedback helpers the Exercises list uses
+// so the wording (including "No answer submitted." for an untouched,
+// exam-expired question) stays identical across both views.
+function updateAtom1QuestionFeedback(qid, ex) {
+    const el = document.getElementById('atom1Feedback-' + qid);
+    if (!el) return;
+    if (!ex || !ex.locked) {
+        el.textContent = '';
+        el.className = 'atom1-feedback';
+        return;
+    }
+    const feedback = buildFeedbackForExercise(ex);
+    renderFeedback(el, feedback);
+    el.className = 'atom1-feedback ' + feedback.cls;
+}
+
+// Updates one question's score badge (max always 1/1 for Atom 1). Reuses
+// the app's existing bare .completed-score/.partial-score classes so the
+// coloring matches the Exercises list's own score pills exactly.
+function updateAtom1ScoreBadge(qid, ex) {
+    const badge = document.getElementById('atom1ScoreBadge-' + qid);
+    if (!badge || !ex) return;
+    badge.textContent = (ex.score || 0) + '/' + ex.answers.length;
+    badge.classList.remove('completed-score', 'partial-score');
+    if (ex.locked) {
+        if (ex.score === ex.answers.length) badge.classList.add('completed-score');
+        else if (ex.score > 0) badge.classList.add('partial-score');
+    }
+}
+
+// Applies every visual consequence of this question being locked: the
+// panel's correct/incorrect edge color, the bit grid's click-lock, the
+// feedback message, the score badge, and the action button label.
+function applyAtom1LockedUI(qid, ex) {
+    const panel = document.getElementById('atom1QPanel-' + qid);
+    const grid = document.getElementById('atom1BitGrid-' + qid);
+    const isCorrect = (ex.score || 0) > 0;
+
+    if (panel) {
+        panel.classList.remove('correct', 'incorrect');
+        panel.classList.add(isCorrect ? 'correct' : 'incorrect');
+    }
+    if (grid) grid.classList.add('atom1-locked');
+
+    updateAtom1QuestionFeedback(qid, ex);
+    updateAtom1ScoreBadge(qid, ex);
+    setAtom1ButtonState(qid);
+}
+
+// Grades and locks one Atom 1 question — the Atom 1 equivalent of
+// checkAnswers, but scoped to a single question's qid since every
+// question on this page has its own independent Verify button.
+function verifyAtom1Question(qid) {
+    const ex = exerciseData[qid];
+    if (!ex || ex.locked) return;
+
+    const grid = document.getElementById('atom1BitGrid-' + qid);
+    const userAnswer = grid ? (grid.dataset.borrowed || '0') : '0';
+    ex.userAnswer = userAnswer;
+
+    const isCorrect = gradeConversionAnswer(ex, userAnswer);
+    ex.score = isCorrect ? 1 : 0;
+    ex.isPartial = false;
+    ex.locked = true;
+
+    applyAtom1LockedUI(qid, ex);
+    updateAtom1NavScore();
+    updateSummaryPanel();
+
+    if (isCorrect) triggerConfetti();
+
+    if (appSettings.mode === 'exam') {
+        saveExamSession();
+        if (checkIfAllAnswered()) {
+            stopTimer();
+            setTimeout(() => {
+                showScoreSummaryModal('Congratulations! All exercises completed before time ran out!', 'success');
+            }, 500);
+        }
+    }
+}
+
+// Resets one Atom 1 question — practice mode only, mirroring
+// resetCurrentExercise's exam-mode guard.
+function resetAtom1Question(qid) {
+    if (appSettings.mode === 'exam') {
+        showAlertModal('Reset Not Allowed', 'Reset is not allowed in Exam Mode.');
+        return;
+    }
+    const ex = exerciseData[qid];
+    if (!ex) return;
+
+    ex.userAnswer = '';
+    ex.score = 0;
+    ex.isPartial = false;
+    ex.locked = false;
+
+    updateAtom1Grid(qid, ex, 0);
+
+    const panel = document.getElementById('atom1QPanel-' + qid);
+    if (panel) panel.classList.remove('correct', 'incorrect');
+    const grid = document.getElementById('atom1BitGrid-' + qid);
+    if (grid) grid.classList.remove('atom1-locked');
+
+    updateAtom1QuestionFeedback(qid, null);
+    updateAtom1ScoreBadge(qid, ex);
+    setAtom1ButtonState(qid);
+    updateAtom1NavScore();
+    updateSummaryPanel();
+}
+
+// Aggregates every atom1-q* exercise into a single X/N readout on the
+// sidebar's "Atom 1" nav entry — its nav tag, per the finalized plan,
+// shows a live score readout (same completed/partial/unanswered coloring
+// as the Exercises list' score pills) instead of the "Ungraded" pill
+// Atom 2–5 keep.
+function updateAtom1NavScore() {
+    const scoreEl = document.getElementById('score-atom1');
+    if (!scoreEl) return;
+    let got = 0;
+    let total = 0;
+    for (const file in exerciseData) {
+        if (file.indexOf('atom1-q') === 0) {
+            const ex = exerciseData[file];
+            got += Number(ex.score || 0);
+            total += ex.answers.length;
+        }
+    }
+    scoreEl.textContent = got + '/' + total;
+    scoreEl.classList.remove('completed-score', 'partial-score');
+    if (total > 0 && got === total) {
+        scoreEl.classList.add('completed-score');
+    } else if (got > 0) {
+        scoreEl.classList.add('partial-score');
+    }
+}
+
+// Re-applies every Atom 1 question's current exerciseData state (grid
+// borrowed-bit count, locked styling, feedback, badge) onto the already-
+// rendered DOM. Called once per login, after exam-session restore (and
+// any timer-expiry force-lock) has already updated exerciseData itself —
+// this is what actually makes those restored/expired states visible, since
+// Atom 1's view has no per-question lazy render step like switchExercise.
+function syncAtom1ViewDOM() {
+    for (const file in exerciseData) {
+        if (file.indexOf('atom1-q') !== 0) continue;
+        const ex = exerciseData[file];
+        if (!ex) continue;
+
+        const borrowed = parseInt(ex.userAnswer, 10);
+        const safeBorrowed = isNaN(borrowed) ? 0 : Math.max(0, Math.min(borrowed, ex.maxBorrow));
+        updateAtom1Grid(file, ex, safeBorrowed);
+
+        if (ex.locked) {
+            applyAtom1LockedUI(file, ex);
+        } else {
+            setAtom1ButtonState(file);
+        }
+    }
+    updateAtom1NavScore();
+}
+
+// --- Sidebar navigation into the Atom 1 view (Tools → Atoms → Atom 1) ---
+// Mirrors showSubnetVisualizer/showAtomPage's page-switching pattern (hide
+// every other view, clear currentFile since no single exercise is
+// "current" here, close the console drawer), plus keeps the exam timer bar
+// visible here too — unlike the ungraded tools, Atom 1 is scored and
+// counts toward exam completion, so the countdown should stay visible
+// while working through it.
+function showAtom1Page() {
+    document.querySelectorAll('.sidebar li').forEach(l => l.classList.remove('active'));
+    const navItem = document.getElementById('nav-atom1');
+    if (navItem) navItem.classList.add('active');
+
+    document.getElementById('exerciseArea').style.display = 'none';
+    document.getElementById('subnetVisualizerView').style.display = 'none';
+    document.getElementById('atomPlaceholderView').style.display = 'none';
+    document.getElementById('atom2View').style.display = 'none';
+    document.getElementById('atom3View').style.display = 'none';
+    document.getElementById('atom1View').style.display = 'flex';
+    document.getElementById('timerContainer').style.display = timerIntervalId ? 'flex' : 'none';
+
+    currentFile = ''; // no single graded exercise is "current" on this page
+
+    closeSampleOutputModal();
+    updateConsoleDrawerTab(false);
+
+    closeSidebarIfMobile();
+}
+
+/* =========================================================
+   ATOM 2: THE MASK ASSEMBLY (INTERESTING OCTET) — rendering & interaction
+   Follows Atom 1's lead throughout: same .panel/.bit-grid/.bit-cell/
+   .class-value/.octet-field component language, same dedicated
+   full-width view pattern (own container, own Verify/Reset + feedback per
+   question, own nav score aggregation), same self-contained verify/reset
+   pathway independent of the shared #actionButton/#feedback the Exercises
+   list uses.
+
+   The interaction itself is deliberately different from Atom 1's "click
+   sets the subnet boundary" behavior: here every bit beyond the classful
+   network portion starts at 0 and toggles independently (0->1->0) on its
+   own click, since the student is assembling a specific, already-given
+   mask rather than exploring where a boundary should sit. The classful
+   network bits are locked to 1 by default (they're always part of any
+   mask for this address) using the exact same "locked" bit-cell styling
+   Atom 1 and the Subnet Visualizer already use — reused here to mean "this
+   bit is fixed," not "this bit is off-limits to view."
+
+   Bit-level coloring still reuses the app's existing locked/borrowed/host
+   language even though "borrowed/host" don't map to Atom 2's task in the
+   original visualizer sense: a mask bit the student has toggled ON in the
+   togglable region IS, definitionally, a bit borrowed from the host
+   portion into the network/subnet portion — so amber-for-"on" and
+   green-for-"off" stays semantically honest, not just visually recycled.
+
+   The target CIDR is shown once, as given information, in the prompt text
+   and in Panel 1's static address readout (mirroring Atom 1's own static
+   "/networkBits" suffix there) — but never as a live badge attached to the
+   bit grid itself, so the grid can't be used to just read the answer back
+   instead of building it.
+========================================================= */
+
+// Builds the 32-character '0'/'1' string representing the grid's default
+// starting state for a given classful network-bit count: classful bits
+// locked to 1, every remaining bit starts at 0. Used both to seed a fresh
+// question and to reset an already-answered one.
+function initAtom2MaskBits(networkBits) {
+    return '1'.repeat(networkBits) + '0'.repeat(32 - networkBits);
+}
+
+// Builds the inner HTML of Atom 2's 32-bit grid from its current mask-bit
+// string. Unlike Atom 1's renderAtom1BitGridInner (which derives every
+// bit's color from a single borrowedBits boundary), each bit's color here
+// comes directly from its own current value: locked (classful, always 1),
+// "borrowed" styling when toggled on, "host" styling when left off.
+function renderAtom2BitGridInner(qid, maskBitsArr, networkBits) {
+    let html = '';
+    for (let g = 0; g < 4; g++) {
+        const bitsSlice = maskBitsArr.slice(g * 8, g * 8 + 8);
+        const kindsSlice = bitsSlice.map((b, k) => {
+            const gi = g * 8 + k;
+            if (gi < networkBits) return 'locked';
+            return b === 1 ? 'borrowed' : 'host';
+        });
+
+        html += '<div class="octet-block">';
+        html += '<div class="octet-total octet-total-main">' + atom1BitsToOctet(bitsSlice) +
+            (g < 3 ? '<span class="octet-total-dot">.</span>' : '') + '</div>';
+
+        html += '<div class="weight-row weight-row-main">';
+        OCTET_BIT_PLACE_VALUES.forEach((w, k) => {
+            const lit = bitsSlice[k] === 1;
+            const cls = lit ? ('weight-num weight-lit weight-lit-' + kindsSlice[k]) : 'weight-num weight-muted';
+            html += '<span class="' + cls + '">' + w + '</span>';
+        });
+        html += '</div>';
+
+        html += '<div class="bit-octet-group">';
+        for (let b = 0; b < 8; b++) {
+            const gi = g * 8 + b;
+            const kind = kindsSlice[b];
+            html += '<div class="bit-cell ' + kind + '" data-idx="' + gi + '"' +
+                (kind !== 'locked' ? ' role="button" tabindex="0" title="Click to toggle this bit"' : '') + '>' +
+                (kind === 'locked' ? '<span class="lock-icon"><i class="fa-solid fa-lock"></i></span>' : '') +
+                '<span class="bit-value">' + bitsSlice[b] + '</span>' +
+                '</div>';
+        }
+        html += '</div>';
+
+        html += '<div class="octet-viz-label">Octet ' + (g + 1) + '</div>';
+        html += '</div>';
+
+        if (g < 3) html += '<div class="octet-dot-separator">.</div>';
+    }
+    return html;
+}
+
+// Re-renders the grid for a new mask-bit string, keeping the grid's own
+// dataset in sync (the single source of truth for "what's currently
+// toggled on" — read back out at verify/save time).
+function updateAtom2Grid(qid, ex, maskBitsStr) {
+    const grid = document.getElementById('atom2BitGrid-' + qid);
+    if (!grid) return;
+    const bitsArr = maskBitsStr.split('').map(Number);
+    grid.dataset.maskbits = maskBitsStr;
+    grid.innerHTML = renderAtom2BitGridInner(qid, bitsArr, ex.networkBits);
+}
+
+// Delegated click/keyboard handling for one question's grid. Clicking any
+// unlocked bit flips just that bit (0->1 or 1->0) — independent of every
+// other bit, unlike Atom 1's single-boundary click.
+function attachAtom2Handlers(qid, ex) {
+    const grid = document.getElementById('atom2BitGrid-' + qid);
+    if (!grid) return;
+
+    const handleActivate = (cell) => {
+        if (exerciseData[qid]?.locked) return;
+        if (!cell || cell.classList.contains('locked')) return;
+        const idx = parseInt(cell.dataset.idx, 10);
+        const current = grid.dataset.maskbits || initAtom2MaskBits(ex.networkBits);
+        const chars = current.split('');
+        chars[idx] = chars[idx] === '1' ? '0' : '1';
+        updateAtom2Grid(qid, ex, chars.join(''));
+        saveAtom2Progress(qid);
+    };
+
+    grid.addEventListener('click', (e) => {
+        handleActivate(e.target.closest('.bit-cell'));
+    });
+    grid.addEventListener('keydown', (e) => {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        const cell = e.target.closest && e.target.closest('.bit-cell');
+        if (!cell) return;
+        e.preventDefault();
+        handleActivate(cell);
+    });
+}
+
+// Persists the in-progress mask-bit string for one Atom 2 question
+// (analogous to saveAtom1Progress).
+function saveAtom2Progress(qid) {
+    const ex = exerciseData[qid];
+    if (!ex || ex.locked) return;
+    const grid = document.getElementById('atom2BitGrid-' + qid);
+    ex.userAnswer = grid ? (grid.dataset.maskbits || initAtom2MaskBits(ex.networkBits)) : (ex.userAnswer || '');
+    if (appSettings.mode === 'exam') saveExamSession();
+}
+
+// Guards against attaching the delegated verify/reset click listener more
+// than once, same rationale as atom1ActionsDelegated.
+let atom2ActionsDelegated = false;
+
+function buildAtom2PanelHtml(qid, ex, index) {
+    const octetsHtml = ex.octets.map((o, i) => {
+        const dot = i < 3 ? '<span class="dot">.</span>' : '';
+        return '<div class="octet-field"><span class="octet-label">Octet ' + (i + 1) + '</span><div class="atom1-octet-value">' + o + '</div></div>' + dot;
+    }).join('');
+
+    // Panel 1 restates the given host IP and target CIDR as static, given
+    // information (same convention as Atom 1's own static "/networkBits"
+    // suffix here) — this is not the answer area, so showing it is safe;
+    // only the bit grid below withholds it.
+    const panel1Html =
+        '<div class="atom1-panel1">' +
+            '<div class="octet-input-row atom1-octet-row">' +
+                '<div class="octet-field class-field">' +
+                    '<span class="octet-label">Class</span>' +
+                    '<span class="class-value">' + ex.classLabel + '</span>' +
+                '</div>' +
+                '<span class="row-divider" aria-hidden="true">|</span>' +
+                octetsHtml +
+                '<span class="decimal-cidr-suffix octet-row-cidr-suffix">/' + ex.targetCidr + '</span>' +
+            '</div>' +
+        '</div>';
+
+    // Grid always starts rendered in its default state (classful bits
+    // locked to 1, rest at 0) — any persisted in-progress/locked state is
+    // reapplied afterward by syncAtom2ViewDOM, mirroring Atom 1's own
+    // buildAtom1PanelHtml/syncAtom1ViewDOM split.
+    const initBits = initAtom2MaskBits(ex.networkBits).split('').map(Number);
+
+    const gridHtml =
+        '<div class="atom1-bitgrid-wrap">' +
+            '<div class="bit-grid atom1-bitgrid atom2-bitgrid" id="atom2BitGrid-' + qid + '" data-qid="' + qid + '" data-network-bits="' + ex.networkBits + '" data-maskbits="' + initAtom2MaskBits(ex.networkBits) + '">' +
+                renderAtom2BitGridInner(qid, initBits, ex.networkBits) +
+            '</div>' +
+            '<div class="legend secondary-copy">' +
+                '<span><i class="swatch swatch-locked"></i> Locked network bit</span>' +
+                '<span><i class="swatch swatch-borrowed"></i> Mask bit ON (1)</span>' +
+                '<span><i class="swatch swatch-host"></i> Mask bit OFF (0)</span>' +
+            '</div>' +
+        '</div>';
+
+    return (
+        '<section class="panel atom1-q-panel" id="atom2QPanel-' + qid + '" data-qid="' + qid + '">' +
+            '<div class="panel-head">' +
+                '<span class="panel-index">Q' + index + '</span>' +
+                '<h2>Subnet Mask Assembly</h2>' +
+                '<span class="badge atom1-score-badge" id="atom2ScoreBadge-' + qid + '">0/1</span>' +
+            '</div>' +
+            '<div class="conversion-prompt">' + ex.promptHtml + '</div>' +
+            panel1Html +
+            gridHtml +
+            '<div class="atom1-actions">' +
+                '<button class="primary-btn atom2-verify-btn" data-qid="' + qid + '">Verify Answer</button>' +
+                '<div class="atom1-feedback" id="atom2Feedback-' + qid + '" role="status" aria-live="polite"></div>' +
+            '</div>' +
+        '</section>'
+    );
+}
+
+// Builds the full Atom 2 page from scratch (called once per login) and
+// wires up each question's bit-grid interaction plus a single delegated
+// click listener for every Verify/Reset button on the page — same
+// structure as renderAtom1View.
+function renderAtom2View(atom2List) {
+    const container = document.getElementById('atom2QuestionsContainer');
+    if (!container) return;
+
+    container.innerHTML = atom2List
+        .map((item, i) => buildAtom2PanelHtml(item.name, exerciseData[item.name], i + 1))
+        .join('');
+
+    atom2List.forEach(item => {
+        attachAtom2Handlers(item.name, exerciseData[item.name]);
+    });
+
+    if (!atom2ActionsDelegated) {
+        atom2ActionsDelegated = true;
+        container.addEventListener('click', (e) => {
+            const btn = e.target.closest('.atom2-verify-btn');
+            if (!btn) return;
+            const qid = btn.dataset.qid;
+            const ex = exerciseData[qid];
+            if (!ex) return;
+            if (ex.locked) {
+                resetAtom2Question(qid);
+            } else {
+                verifyAtom2Question(qid);
+            }
+        });
+    }
+}
+
+// Sets the Verify/Reset/Locked button label + disabled state for one
+// question — same rules as setAtom1ButtonState.
+function setAtom2ButtonState(qid) {
+    const ex = exerciseData[qid];
+    const btn = document.querySelector('.atom2-verify-btn[data-qid="' + qid + '"]');
+    if (!btn || !ex) return;
+    if (ex.locked) {
+        if (appSettings.mode === 'practice') {
+            btn.textContent = 'Reset';
+            btn.disabled = false;
+        } else {
+            btn.textContent = 'Locked';
+            btn.disabled = true;
+        }
+    } else {
+        btn.textContent = 'Verify Answer';
+        btn.disabled = false;
+    }
+}
+
+// Renders this question's per-question feedback. Reuses
+// buildFeedbackForExercise/renderFeedback exactly as Atom 1 does — with
+// answers.length === 1, its existing all-or-nothing "Not quite" branch
+// already produces the right wording for Atom 2's 1-point score with no
+// changes needed there.
+function updateAtom2QuestionFeedback(qid, ex) {
+    const el = document.getElementById('atom2Feedback-' + qid);
+    if (!el) return;
+    if (!ex || !ex.locked) {
+        el.textContent = '';
+        el.className = 'atom1-feedback';
+        return;
+    }
+    const feedback = buildFeedbackForExercise(ex);
+    renderFeedback(el, feedback);
+    el.className = 'atom1-feedback ' + feedback.cls;
+}
+
+// Updates one question's score badge (max always 1/1 for Atom 2) — same
+// coloring convention as updateAtom1ScoreBadge.
+function updateAtom2ScoreBadge(qid, ex) {
+    const badge = document.getElementById('atom2ScoreBadge-' + qid);
+    if (!badge || !ex) return;
+    badge.textContent = (ex.score || 0) + '/' + ex.answers.length;
+    badge.classList.remove('completed-score', 'partial-score');
+    if (ex.locked) {
+        if (ex.score === ex.answers.length) badge.classList.add('completed-score');
+        else if (ex.score > 0) badge.classList.add('partial-score');
+    }
+}
+
+// Applies every visual consequence of this question being locked — same
+// shape as applyAtom1LockedUI. Reuses the "atom1-locked" grid-lock class
+// (identical pointer-events/opacity rule already defined for it in CSS;
+// the grid also carries the shared "atom1-bitgrid" class, so no new CSS
+// selector is needed for Atom 2 specifically).
+function applyAtom2LockedUI(qid, ex) {
+    const panel = document.getElementById('atom2QPanel-' + qid);
+    const grid = document.getElementById('atom2BitGrid-' + qid);
+    const isCorrect = (ex.score || 0) === ex.answers.length;
+
+    if (panel) {
+        panel.classList.remove('correct', 'incorrect');
+        panel.classList.add(isCorrect ? 'correct' : 'incorrect');
+    }
+    if (grid) grid.classList.add('atom1-locked');
+
+    updateAtom2QuestionFeedback(qid, ex);
+    updateAtom2ScoreBadge(qid, ex);
+    setAtom2ButtonState(qid);
+}
+
+// Grades and locks one Atom 2 question — reads the grid's current
+// mask-bit string, converts it to dotted-decimal, and compares the WHOLE
+// mask against the correct one. All-or-nothing (1 point), same grading
+// shape as Atom 1 — self-contained here since Atom 2 doesn't route
+// through the shared checkAnswers flow.
+function verifyAtom2Question(qid) {
+    const ex = exerciseData[qid];
+    if (!ex || ex.locked) return;
+
+    const grid = document.getElementById('atom2BitGrid-' + qid);
+    const maskBitsStr = grid ? (grid.dataset.maskbits || initAtom2MaskBits(ex.networkBits)) : initAtom2MaskBits(ex.networkBits);
+    const bitsArr = maskBitsStr.split('').map(Number);
+    const userOctets = [0, 1, 2, 3].map(g => atom1BitsToOctet(bitsArr.slice(g * 8, g * 8 + 8)));
+    const userMask = userOctets.join('.');
+
+    ex.userAnswer = maskBitsStr; // stored as the raw bit string for faithful restore
+
+    const isCorrect = userMask === (ex.correct || '').trim();
+    ex.score = isCorrect ? 1 : 0;
+    ex.isPartial = false;
+    ex.locked = true;
+
+    applyAtom2LockedUI(qid, ex);
+    updateAtom2NavScore();
+    updateSummaryPanel();
+
+    if (isCorrect) triggerConfetti();
+
+    if (appSettings.mode === 'exam') {
+        saveExamSession();
+        if (checkIfAllAnswered()) {
+            stopTimer();
+            setTimeout(() => {
+                showScoreSummaryModal('Congratulations! All exercises completed before time ran out!', 'success');
+            }, 500);
+        }
+    }
+}
+
+// Resets one Atom 2 question — practice mode only, mirroring
+// resetAtom1Question's exam-mode guard.
+function resetAtom2Question(qid) {
+    if (appSettings.mode === 'exam') {
+        showAlertModal('Reset Not Allowed', 'Reset is not allowed in Exam Mode.');
+        return;
+    }
+    const ex = exerciseData[qid];
+    if (!ex) return;
+
+    ex.userAnswer = '';
+    ex.score = 0;
+    ex.isPartial = false;
+    ex.locked = false;
+
+    updateAtom2Grid(qid, ex, initAtom2MaskBits(ex.networkBits));
+
+    const panel = document.getElementById('atom2QPanel-' + qid);
+    if (panel) panel.classList.remove('correct', 'incorrect');
+    const grid = document.getElementById('atom2BitGrid-' + qid);
+    if (grid) grid.classList.remove('atom1-locked');
+
+    updateAtom2QuestionFeedback(qid, null);
+    updateAtom2ScoreBadge(qid, ex);
+    setAtom2ButtonState(qid);
+    updateAtom2NavScore();
+    updateSummaryPanel();
+}
+
+// Aggregates every atom2-q* exercise into a single X/N readout on the
+// sidebar's "Atom 2" nav entry, same as updateAtom1NavScore.
+function updateAtom2NavScore() {
+    const scoreEl = document.getElementById('score-atom2');
+    if (!scoreEl) return;
+    let got = 0;
+    let total = 0;
+    for (const file in exerciseData) {
+        if (file.indexOf('atom2-q') === 0) {
+            const ex = exerciseData[file];
+            got += Number(ex.score || 0);
+            total += ex.answers.length;
+        }
+    }
+    scoreEl.textContent = got + '/' + total;
+    scoreEl.classList.remove('completed-score', 'partial-score');
+    if (total > 0 && got === total) {
+        scoreEl.classList.add('completed-score');
+    } else if (got > 0) {
+        scoreEl.classList.add('partial-score');
+    }
+}
+
+// Re-applies every Atom 2 question's current exerciseData state (grid
+// mask-bit string, locked styling, feedback, badge) onto the
+// already-rendered DOM — called once per login, after exam-session
+// restore, same rationale as syncAtom1ViewDOM.
+function syncAtom2ViewDOM() {
+    for (const file in exerciseData) {
+        if (file.indexOf('atom2-q') !== 0) continue;
+        const ex = exerciseData[file];
+        if (!ex) continue;
+
+        const maskBitsStr = (typeof ex.userAnswer === 'string' && ex.userAnswer.length === 32)
+            ? ex.userAnswer
+            : initAtom2MaskBits(ex.networkBits);
+        updateAtom2Grid(file, ex, maskBitsStr);
+
+        if (ex.locked) {
+            applyAtom2LockedUI(file, ex);
+        } else {
+            setAtom2ButtonState(file);
+        }
+    }
+    updateAtom2NavScore();
+}
+
+// --- Sidebar navigation into the Atom 2 view (Tools → Atoms → Atom 2) ---
+// Mirrors showAtom1Page exactly.
+function showAtom2Page() {
+    document.querySelectorAll('.sidebar li').forEach(l => l.classList.remove('active'));
+    const navItem = document.getElementById('nav-atom2');
+    if (navItem) navItem.classList.add('active');
+
+    document.getElementById('exerciseArea').style.display = 'none';
+    document.getElementById('subnetVisualizerView').style.display = 'none';
+    document.getElementById('atomPlaceholderView').style.display = 'none';
+    document.getElementById('atom1View').style.display = 'none';
+    document.getElementById('atom2View').style.display = 'flex';
+    document.getElementById('atom3View').style.display = 'none';
+    document.getElementById('timerContainer').style.display = timerIntervalId ? 'flex' : 'none';
+
+    currentFile = ''; // no single graded exercise is "current" on this page
+
+    closeSampleOutputModal();
+    updateConsoleDrawerTab(false);
+
+    closeSidebarIfMobile();
+}
+
+/* =========================================================
+   ATOM 3: THE SPACE MAP (FRONT & BACK SUBNETS) — rendering & interaction
+   Reuses Atom 1's exact boundary-click mechanic and grid renderer
+   (renderAtom1BitGridInner / atom1OctetsToBits / atom1BitsToOctet) rather
+   than a parallel implementation: the given classful address is shown in
+   a Panel-1-style row, the target CIDR is stated as given information
+   (same convention as Atom 2's static targetCidr suffix), and clicking any
+   unlocked bit in the 32-bit grid sets the subnet boundary there — nothing
+   here re-derives the borrowed-bit count for the student; they have to
+   read the class off the address and work out (targetCidr - networkBits)
+   themselves before clicking.
+
+   Underneath the grid, a live subnet-ID list shows WHICH subnets the
+   current boundary position produces (first 4 / last 4, or all of them
+   when there are 8 or fewer) — but each one starts at all-zero bits and is
+   itself independently clickable, exactly like Atom 2's per-bit toggle
+   grid. The list tells the student which subnet numbers to build; it never
+   fills in the binary for them. Moving the boundary regenerates the list
+   (new subnet numbers, bits reset to 0) since a new boundary means a new
+   set of subnets to build.
+
+   Grading is all-or-nothing across BOTH parts: the grid's final boundary
+   must equal the target borrowed-bit count, AND every currently-shown
+   row's clicked-in bits must correctly represent its own labeled subnet
+   number at that bit width.
+========================================================= */
+
+// Given a borrowed-bit count, returns the ordered list of subnet indices
+// the live list displays for it — every subnet when there are 8 or fewer,
+// otherwise the first 4 and last 4. Shared by the renderer (so the
+// question always shows the right numbers) and the grader (so "correct"
+// is computed against the exact same set), so the two can never drift.
+function atom3SubnetIndicesForBorrowed(borrowedBits) {
+    const totalSubnets = Math.pow(2, borrowedBits);
+    if (borrowedBits <= 0) return [0];
+    if (totalSubnets <= 8) return Array.from({ length: totalSubnets }, (_, i) => i);
+    return [0, 1, 2, 3, totalSubnets - 4, totalSubnets - 3, totalSubnets - 2, totalSubnets - 1];
+}
+
+// Renders the "Subnet Index" bit pattern for one row — the same visual
+// language Panel 4's own borrowed-bit pattern viz uses (a decimal total
+// on top, a weight row scaled to the borrowed-bit width, a joined compact
+// bit-cell strip, and a label underneath), so this reads identically to
+// the Subnet Visualizer's own Subnet Permutation Table instead of the old
+// flat toggle strip. Every cell is always styled "borrowed" (amber)
+// regardless of its current 0/1 value — matching Panel 4's treatment of
+// subnet-index bits as inherently subnet bits — only the weight row above
+// lights up per the actual value. Cells stay clickable here (role=
+// "button") since the student is building this pattern rather than
+// viewing a derived one.
+//
+// Sits directly above the bit-answer grid as a "SUBNET" pill with a
+// prominent circular badge, replacing the old plain decimal total and the
+// even older muted "Subnet N" caption that used to sit underneath the
+// bits. The circle badge — not just plain text — is what signals "this is
+// a subnet INDEX", the same kind of numbered-identity cue a sequence
+// number alone doesn't carry.
+//
+// The pill pairs a "SUBNET" label with a live decimal readout — the same
+// value the old, now-removed ".octet-total-compact" div used to show on
+// its own, so nothing is lost by dropping that separate display; the
+// pill's circle IS the total now. The circle shows the LIVE value the
+// currently-clicked bits represent, not the static target, so it updates
+// in real time as the student clicks and visibly turns into the target
+// subnet number once they've got it right — since it only ever reflects
+// the student's own input, it's safe to show in both modes. The target
+// number itself (which subnet this row is FOR) is answer-relevant, so
+// that's only surfaced via the tooltip, and only in Practice Mode.
+function renderAtom3SubnetIndexInner(qid, rowPos, bitsArr, subnetNum) {
+    const n = bitsArr.length;
+    const total = n ? parseInt(bitsArr.join(''), 2) : 0;
+
+    let weightsHtml = '';
+    for (let k = 0; k < n; k++) {
+        const w = Math.pow(2, n - 1 - k);
+        const lit = bitsArr[k] === 1;
+        weightsHtml += '<span class="weight-num ' + (lit ? 'weight-lit weight-lit-borrowed' : 'weight-muted') + '">' + w + '</span>';
+    }
+
+    let cellsHtml = '';
+    for (let k = 0; k < n; k++) {
+        cellsHtml += '<div class="bit-cell borrowed" data-idx="' + k + '" role="button" tabindex="0" title="Click to toggle this bit"><span class="bit-value">' + bitsArr[k] + '</span></div>';
+    }
+
+    const pillTitleAttr = (appSettings.mode === 'practice')
+        ? ' title="This row builds Subnet ' + subnetNum + '"'
+        : '';
+    const pillHtml =
+        '<div class="atom3-subnet-pill"' + pillTitleAttr + '>' +
+            '<span class="atom3-subnet-pill-label">Subnet</span>' +
+            '<span class="atom3-subnet-pill-circle">' + total + '</span>' +
+        '</div>';
+
+    return '<div class="atom3-subnet-index-header">' +
+                pillHtml +
+            '</div>' +
+        (n > 0 ? '<div class="weight-row weight-row-compact">' + weightsHtml + '</div>' : '') +
+        '<div class="unified-octet-cell atom3-bit-row" id="atom3Row-' + qid + '-' + rowPos + '" data-qid="' + qid + '" data-row="' + rowPos + '" data-bits="' + bitsArr.join('') + '">' + cellsHtml + '</div>';
+}
+
+// Wraps renderAtom3SubnetIndexInner in the same .octet-bits-group column
+// container Panel 4/5's own compact bit visualizations already use
+// (plain global CSS, not scoped to the SubnetVisualizer IIFE), so it
+// inherits identical centering/spacing with no new CSS needed. Carries
+// data-qid/data-row so updateAtom3Row can find and re-render it directly,
+// and data-subnet so updateAtom3Row can restate the same target subnet
+// number in the caption on every re-render without needing it re-passed
+// in from the click handler.
+//
+// The explicit pixel width belongs HERE, on the outer .octet-bits-group —
+// not on the inner bit strip, which was this function's original bug.
+// .octet-bits-group carries container-type:inline-size (needed so the
+// decimal total's cqi-based font-size scales correctly), and per the
+// matching comment on Panel 4's own buildBorrowedPatternViz, that
+// containment strips the box's ability to size itself from its own
+// content: left at auto width, it collapses toward ~0, so the caption
+// below it has almost no room and wraps onto two lines instead of
+// staying on one.
+function renderAtom3SubnetIndexViz(qid, rowPos, bitsArr, subnetNum) {
+    const groupWidthPx = bitsArr.length * 20 + 2;
+    return '<div class="octet-bits-group" style="width:' + groupWidthPx + 'px" data-qid="' + qid + '" data-row="' + rowPos + '" data-subnet="' + subnetNum + '">' +
+        renderAtom3SubnetIndexInner(qid, rowPos, bitsArr, subnetNum) +
+        '</div>';
+}
+
+// Local duplicate of Panel 4/5's per-octet bit visualization
+// (buildSingleOctetBits, private to the SubnetVisualizer IIFE and not
+// reachable from here) — renders one octet's total/weight-row/bit-cell/
+// label block, including the dashed "curtain" divider marking the
+// boundary between borrowed (subnet) and host bits, exactly as Panel 4's
+// own "Octet Bits & Subnet ID" column does.
+function atom3BuildSingleOctetBits(fullBits, networkBits, borrowEnd, octetIndex) {
+    const octetStart = octetIndex * 8;
+    const bitsSlice = fullBits.slice(octetStart, octetStart + 8);
+    const kindsSlice = [];
+    let cellsHtml = '';
+    for (let k = 0; k < 8; k++) {
+        const gi = octetStart + k;
+        let kind = 'host';
+        if (gi < networkBits) kind = 'locked';
+        else if (gi < borrowEnd) kind = 'borrowed';
+        kindsSlice.push(kind);
+        const isCurtainBit = gi === borrowEnd - 1 && borrowEnd > networkBits && gi < octetStart + 7;
+        cellsHtml += '<span class="u-bit ' + kind + '-bit' + (isCurtainBit ? ' curtain-before' : '') + '">' + bitsSlice[k] + '</span>';
+    }
+    let weightsHtml = '';
+    OCTET_BIT_PLACE_VALUES.forEach((w, k) => {
+        const lit = bitsSlice[k] === 1;
+        const cls = lit ? ('weight-num weight-lit weight-lit-' + kindsSlice[k]) : 'weight-num weight-muted';
+        weightsHtml += '<span class="' + cls + '">' + w + '</span>';
+    });
+    const totalVal = atom1BitsToOctet(bitsSlice);
+    const dot = octetIndex < 3 ? '<span class="octet-total-dot">.</span>' : '';
+    // Explicit width required — see the matching comment on
+    // renderAtom3SubnetIndexInner/the original buildSingleOctetBits this
+    // duplicates: .octet-bits-group has container-type:inline-size, which
+    // strips its ability to size itself from its own content, so an
+    // auto/shrink-to-fit width collapses toward ~0 and makes adjacent
+    // .octet-bits-group siblings overlap instead of sitting side by side.
+    const groupWidthPx = 8 * 20 + 2;
+    return '<div class="octet-bits-group" style="width:' + groupWidthPx + 'px">' +
+        '<div class="octet-total octet-total-compact">' + totalVal + dot + '</div>' +
+        '<div class="weight-row weight-row-compact">' + weightsHtml + '</div>' +
+        '<span class="unified-octet-cell">' + cellsHtml + '</span>' +
+        '<span class="octet-viz-label">Octet ' + (octetIndex + 1) + '</span>' +
+        '</div>';
+}
+
+// Composes the full 32-bit network address for one subnet row — classful
+// network-portion bits (from the given classful address) + this row's own
+// subnet bits (however many of them the student has clicked to 1 so far)
+// + zero-filled host bits — and renders it with the same rich per-octet
+// bit visualization Panel 4 uses (see atom3BuildSingleOctetBits above)
+// instead of a plain dotted-decimal string. Recomputed live as the
+// student clicks each row's bits, mirroring Atom 1's live formula box:
+// it only reflects the current attempt, never the target.
+function atom3BuildFullAddressViz(ex, subnetBitsArr) {
+    const networkBits = ex.networkBits;
+    const borrowEnd = networkBits + subnetBitsArr.length;
+    const hostBits = Math.max(0, 32 - borrowEnd);
+    const prefixBits = atom1OctetsToBits(ex.octets).slice(0, networkBits);
+    const fullBits = prefixBits.concat(subnetBitsArr).concat(new Array(hostBits).fill(0));
+    let out = '<div class="octet-bits-row">';
+    for (let o = 0; o < 4; o++) {
+        out += atom3BuildSingleOctetBits(fullBits, networkBits, borrowEnd, o);
+    }
+    out += '</div>';
+    return out;
+}
+
+// Builds one subnet's row: its clickable "Subnet Index" bit pattern, and
+// — mirroring Panel 4's own "Octet Bits & Subnet ID" column — the full
+// composed network address, both rendered with the exact same compact
+// bit-visualization language Panel 4 uses. No separate "Subnet N" text
+// label — the index box's own decimal total already is that number (see
+// renderAtom3SubnetIndexViz), same as Panel 4's own table. Both live
+// readouts reflect only what's been entered so far (all-zero / the
+// classful-plus-zeros address until the student acts) — neither one
+// reveals the target, they only mirror back the current attempt.
+function buildAtom3RowHtml(qid, rowPos, subnetNum, borrowedBits, ex) {
+    const zeros = new Array(borrowedBits).fill(0);
+    return (
+        '<div class="atom3-subnet-row">' +
+            renderAtom3SubnetIndexViz(qid, rowPos, zeros, subnetNum) +
+            '<span class="atom3-row-network" id="atom3Network-' + qid + '-' + rowPos + '">' + atom3BuildFullAddressViz(ex, zeros) + '</span>' +
+        '</div>'
+    );
+}
+
+// Builds the live "first N / last N subnets" list for the CURRENT
+// borrowed-bit selection — WHICH subnets are shown updates live as the
+// boundary moves, but every row's bits always start at 0 for the student
+// to build themselves. `ex` is threaded through so each row can compose
+// its own live network-address readout (see atom3BuildFullAddressViz).
+// Always a single vertical column (.atom3-subnet-group) — when there are
+// more than 8 subnets, "First 4"/"Last 4" are two stacked sections within
+// that same column rather than two side-by-side groups.
+function buildAtom3SubnetListHtml(qid, borrowedBits, ex) {
+    const indices = atom3SubnetIndicesForBorrowed(borrowedBits);
+    const rowsHtml = indices.map((n, pos) => buildAtom3RowHtml(qid, pos, n, borrowedBits, ex)).join('');
+
+    if (borrowedBits <= 0) {
+        return '<div class="atom3-subnet-group"><h3 class="atom3-group-title">Subnets</h3>' + rowsHtml + '</div>';
+    }
+    const totalSubnets = Math.pow(2, borrowedBits);
+    if (totalSubnets <= 8) {
+        return '<div class="atom3-subnet-group"><h3 class="atom3-group-title">All ' + totalSubnets + ' Subnet' + (totalSubnets === 1 ? '' : 's') + '</h3>' + rowsHtml + '</div>';
+    }
+    const firstRowsHtml = indices.slice(0, 4).map((n, pos) => buildAtom3RowHtml(qid, pos, n, borrowedBits, ex)).join('');
+    const lastRowsHtml = indices.slice(4, 8).map((n, pos) => buildAtom3RowHtml(qid, pos + 4, n, borrowedBits, ex)).join('');
+    return '<div class="atom3-subnet-group">' +
+                '<h3 class="atom3-group-title">First 4 Subnets</h3>' + firstRowsHtml +
+                '<h3 class="atom3-group-title atom3-group-title-second">Last 4 Subnets</h3>' + lastRowsHtml +
+            '</div>';
+}
+
+// Re-renders the grid + borrow badge + live subnet list for a new
+// borrowed-bit count. Called on every grid click and on restore — the
+// subnet list is always rebuilt FRESH (bits reset to 0) since a new
+// boundary means a new set of subnets to build from scratch.
+function updateAtom3Grid(qid, ex, borrowedBits) {
+    const grid = document.getElementById('atom3BitGrid-' + qid);
+    if (!grid) return;
+    const inputBits = atom1OctetsToBits(ex.octets);
+    grid.dataset.borrowed = String(borrowedBits);
+    grid.innerHTML = renderAtom1BitGridInner(qid, inputBits, ex.networkBits, borrowedBits);
+
+    const badge = document.getElementById('atom3BorrowBadge-' + qid);
+    if (badge) {
+        badge.innerHTML = '<span>' + borrowedBits + ' bit' + (borrowedBits === 1 ? '' : 's') + ' borrowed &rarr; /' + (ex.networkBits + borrowedBits) + '</span>';
+    }
+
+    const listWrap = document.getElementById('atom3SubnetList-' + qid);
+    if (listWrap) listWrap.innerHTML = buildAtom3SubnetListHtml(qid, borrowedBits, ex);
+}
+
+// --- ATOM 3: MASK ASSEMBLY GRID (reuses Atom 2's mask-assembly engine) ---
+// Once the boundary is set above, the student assembles the matching
+// subnet mask bit by bit — classful network bits locked to 1, everything
+// else starts at 0 and toggles independently on click, exactly like Atom
+// 2's own grid (renderAtom2BitGridInner/initAtom2MaskBits are reused
+// directly; this section only adds the DOM plumbing to give Atom 3 its
+// own independent mask-grid instance per question).
+function updateAtom3MaskGrid(qid, ex, maskBitsStr) {
+    const grid = document.getElementById('atom3MaskGrid-' + qid);
+    if (!grid) return;
+    const bitsArr = maskBitsStr.split('').map(Number);
+    grid.dataset.maskbits = maskBitsStr;
+    grid.innerHTML = renderAtom2BitGridInner(qid, bitsArr, ex.networkBits);
+}
+
+function attachAtom3MaskHandlers(qid, ex) {
+    const grid = document.getElementById('atom3MaskGrid-' + qid);
+    if (!grid) return;
+
+    const handleActivate = (cell) => {
+        if (exerciseData[qid]?.locked) return;
+        if (!cell || cell.classList.contains('locked')) return;
+        const idx = parseInt(cell.dataset.idx, 10);
+        const current = grid.dataset.maskbits || initAtom2MaskBits(ex.networkBits);
+        const chars = current.split('');
+        chars[idx] = chars[idx] === '1' ? '0' : '1';
+        updateAtom3MaskGrid(qid, ex, chars.join(''));
+        saveAtom3Progress(qid);
+    };
+
+    grid.addEventListener('click', (e) => {
+        handleActivate(e.target.closest('.bit-cell'));
+    });
+    grid.addEventListener('keydown', (e) => {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        const cell = e.target.closest && e.target.closest('.bit-cell');
+        if (!cell) return;
+        e.preventDefault();
+        handleActivate(cell);
+    });
+}
+
+// Re-renders one subnet row's "Subnet Index" pattern and its live
+// composed network address for a new bit array, keeping the row's own
+// dataset in sync (the single source of truth for "what's currently
+// clicked" for that row — read back out at verify/save/collect time).
+// Reads the target subnet number back from the group's own data-subnet
+// attribute (set once in renderAtom3SubnetIndexViz) so the caption keeps
+// stating the correct target on every click, without needing it re-passed
+// in from the handler.
+function updateAtom3Row(qid, rowPos, bitsArr) {
+    const group = document.querySelector('.octet-bits-group[data-qid="' + qid + '"][data-row="' + rowPos + '"]');
+    if (!group) return;
+    const subnetNum = group.dataset.subnet;
+    group.innerHTML = renderAtom3SubnetIndexInner(qid, rowPos, bitsArr, subnetNum);
+
+    const ex = exerciseData[qid];
+    const networkEl = document.getElementById('atom3Network-' + qid + '-' + rowPos);
+    if (networkEl && ex) networkEl.innerHTML = atom3BuildFullAddressViz(ex, bitsArr);
+}
+
+// Delegated click/keyboard handling for one question: the 32-bit grid
+// (boundary-setting, exactly like Atom 1) PLUS every subnet row's bit
+// strip below it (per-bit toggle, exactly like Atom 2's mask grid).
+// Attached once to each persistent container — grid clicks regenerate the
+// row list via updateAtom3Grid; row clicks only flip that one bit.
+function attachAtom3Handlers(qid, ex) {
+    const grid = document.getElementById('atom3BitGrid-' + qid);
+    if (grid) {
+        const handleGridActivate = (cell) => {
+            if (exerciseData[qid]?.locked) return;
+            if (!cell || cell.classList.contains('locked')) return;
+            const idx = parseInt(cell.dataset.idx, 10);
+            let newBorrowed = idx - ex.networkBits + 1;
+            newBorrowed = Math.max(0, Math.min(newBorrowed, ex.maxBorrow));
+            updateAtom3Grid(qid, ex, newBorrowed);
+            saveAtom3Progress(qid);
+        };
+
+        grid.addEventListener('click', (e) => {
+            handleGridActivate(e.target.closest('.bit-cell'));
+        });
+        grid.addEventListener('keydown', (e) => {
+            if (e.key !== 'Enter' && e.key !== ' ') return;
+            const cell = e.target.closest && e.target.closest('.bit-cell');
+            if (!cell) return;
+            e.preventDefault();
+            handleGridActivate(cell);
+        });
+    }
+
+    const listWrap = document.getElementById('atom3SubnetList-' + qid);
+    if (listWrap) {
+        const handleRowActivate = (cell) => {
+            if (exerciseData[qid]?.locked) return;
+            const row = cell.closest('.atom3-bit-row');
+            if (!row) return;
+            const rowPos = row.dataset.row;
+            const idx = parseInt(cell.dataset.idx, 10);
+            const bits = (row.dataset.bits || '').split('').map(Number);
+            bits[idx] = bits[idx] === 1 ? 0 : 1;
+            updateAtom3Row(qid, rowPos, bits);
+            saveAtom3Progress(qid);
+        };
+
+        listWrap.addEventListener('click', (e) => {
+            const cell = e.target.closest('.bit-cell');
+            if (cell) handleRowActivate(cell);
+        });
+        listWrap.addEventListener('keydown', (e) => {
+            if (e.key !== 'Enter' && e.key !== ' ') return;
+            const cell = e.target.closest && e.target.closest('.bit-cell');
+            if (!cell) return;
+            e.preventDefault();
+            handleRowActivate(cell);
+        });
+    }
+}
+
+// Reads every currently-shown row's bit string, in display order, plus
+// the grid's own boundary — the full in-progress answer for one Atom 3
+// question. Serialized as "borrowedBits::bits1,bits2,..." so both parts
+// persist and restore together (see restoreAtom3Answer/gradeAtom3Answer).
+function collectAtom3Answer(qid) {
+    const ex = exerciseData[qid];
+    const grid = document.getElementById('atom3BitGrid-' + qid);
+    const borrowedBits = grid ? (grid.dataset.borrowed || '0') : '0';
+    const maskGrid = document.getElementById('atom3MaskGrid-' + qid);
+    const maskBits = maskGrid ? (maskGrid.dataset.maskbits || (ex ? initAtom2MaskBits(ex.networkBits) : '')) : (ex ? initAtom2MaskBits(ex.networkBits) : '');
+    const rows = Array.from(document.querySelectorAll('.atom3-bit-row[data-qid="' + qid + '"]'))
+        .sort((a, b) => parseInt(a.dataset.row, 10) - parseInt(b.dataset.row, 10));
+    const rowBits = rows.map(r => r.dataset.bits || '');
+    return borrowedBits + '::' + maskBits + '::' + rowBits.join(',');
+}
+
+// Grades every answerable item in one Atom 3 question and returns a
+// { score, allCorrect } pair — partial credit, not a single all-or-
+// nothing boolean — mirroring the octet-scored IP conversion questions
+// elsewhere in this file (see gradeConversionScore). Answerable items:
+//   1. The boundary grid's final borrowed-bit count (1 point).
+//   2. The assembled subnet mask, checked against the TARGET CIDR's
+//      standard mask regardless of what boundary was chosen (1 point) —
+//      the mask-assembly grid always starts from the same classful-bits-
+//      locked state independent of the boundary step above it, so it's
+//      graded independently too.
+//   3. Each subnet row shown for the TARGET borrowed-bit count (1 point
+//      each). Rows can only be individually graded when the student's
+//      chosen boundary matches the target: a different boundary shows an
+//      entirely different set of subnet rows (different indices,
+//      different bit widths), so there's no meaningful row-by-row
+//      mapping back to the target rows in that case — those points stay
+//      unearned until the boundary itself is fixed.
+// Uses atom3SubnetIndicesForBorrowed so the expected subnet numbers can
+// never drift from what the renderer actually displayed.
+function gradeAtom3Answer(ex, userAnswerStr) {
+    const parts = (userAnswerStr || '').split('::');
+    const borrowedBits = parseInt(parts[0], 10);
+    const boundaryCorrect = !isNaN(borrowedBits) && borrowedBits === ex.correctBits;
+
+    const maskBitsStr = parts[1] !== undefined ? parts[1] : '';
+    const expectedMask = initAtom2MaskBits(ex.networkBits + ex.correctBits);
+    const maskCorrect = maskBitsStr === expectedMask;
+
+    const targetIndices = atom3SubnetIndicesForBorrowed(ex.correctBits);
+    let rowsCorrect = 0;
+    // Per-row correctness, position-aligned with targetIndices — this is
+    // what drives per-row visual feedback (see applyAtom3ItemFeedback). If
+    // the boundary itself is wrong, the rows currently on screen belong to
+    // a different boundary and aren't comparable to the target rows, so
+    // every row is marked incorrect (none earned a point either).
+    const rowCorrectArr = new Array(targetIndices.length).fill(false);
+    if (boundaryCorrect) {
+        const rowBitsStrs = (parts[2] !== undefined ? parts[2] : '').split(',');
+        for (let i = 0; i < targetIndices.length; i++) {
+            const expected = ex.correctBits > 0 ? targetIndices[i].toString(2).padStart(ex.correctBits, '0') : '';
+            const isRowCorrect = (rowBitsStrs[i] || '') === expected;
+            rowCorrectArr[i] = isRowCorrect;
+            if (isRowCorrect) rowsCorrect++;
+        }
+    }
+
+    const maxScore = 2 + targetIndices.length;
+    const score = (boundaryCorrect ? 1 : 0) + (maskCorrect ? 1 : 0) + rowsCorrect;
+    return { score, allCorrect: score === maxScore, boundaryCorrect, maskCorrect, rowCorrectArr };
+}
+
+// Persists the in-progress boundary + subnet-row bits for one Atom 3
+// question (analogous to saveAtom1Progress/saveAtom2Progress).
+function saveAtom3Progress(qid) {
+    const ex = exerciseData[qid];
+    if (!ex || ex.locked) return;
+    ex.userAnswer = collectAtom3Answer(qid);
+    if (appSettings.mode === 'exam') saveExamSession();
+}
+
+// Guards against attaching the delegated verify/reset click listener more
+// than once, same rationale as atom1ActionsDelegated/atom2ActionsDelegated.
+let atom3ActionsDelegated = false;
+
+function buildAtom3PanelHtml(qid, ex, index) {
+    const inputBits = atom1OctetsToBits(ex.octets);
+
+    const octetsHtml = ex.octets.map((o, i) => {
+        const dot = i < 3 ? '<span class="dot">.</span>' : '';
+        return '<div class="octet-field"><span class="octet-label">Octet ' + (i + 1) + '</span><div class="atom1-octet-value">' + o + '</div></div>' + dot;
+    }).join('');
+
+    // Panel 1 restates the given classful address and the TARGET classless
+    // CIDR as static, given information (same convention as Atom 2's own
+    // static targetCidr suffix) — the student must reach this CIDR by
+    // clicking the grid below; it's never re-derived from the grid itself,
+    // only the live borrow badge under the grid reflects the current click.
+    const panel1Html =
+        '<div class="atom1-panel1">' +
+            '<div class="octet-input-row atom1-octet-row">' +
+                '<div class="octet-field class-field">' +
+                    '<span class="octet-label">Class</span>' +
+                    '<span class="class-value">' + ex.classLabel + '</span>' +
+                '</div>' +
+                '<span class="row-divider" aria-hidden="true">|</span>' +
+                octetsHtml +
+                '<span class="decimal-cidr-suffix octet-row-cidr-suffix">/' + ex.targetCidr + '</span>' +
+            '</div>' +
+        '</div>';
+
+    const gridHtml =
+        '<div class="atom1-bitgrid-wrap" id="atom3BoundaryWrap-' + qid + '">' +
+            '<div class="badge badge-borrow atom1-borrow-badge" id="atom3BorrowBadge-' + qid + '">' +
+                '<span>0 bits borrowed &rarr; /' + ex.networkBits + '</span>' +
+            '</div>' +
+            '<div class="bit-grid atom1-bitgrid" id="atom3BitGrid-' + qid + '" data-qid="' + qid + '" data-network-bits="' + ex.networkBits + '" data-max-borrow="' + ex.maxBorrow + '" data-borrowed="0">' +
+                renderAtom1BitGridInner(qid, inputBits, ex.networkBits, 0) +
+            '</div>' +
+            '<div class="legend secondary-copy">' +
+                '<span><i class="swatch swatch-locked"></i> Locked network bit</span>' +
+                '<span><i class="swatch swatch-borrowed"></i> Borrowed subnet bit</span>' +
+                '<span><i class="swatch swatch-host"></i> Host bit</span>' +
+            '</div>' +
+        '</div>';
+
+    // Mask assembly (reuses Atom 2's toggle-grid engine verbatim —
+    // renderAtom2BitGridInner/initAtom2MaskBits — via its own DOM ids so
+    // it can't collide with the real Atom 2 view's grids). Classful
+    // network bits start locked to 1; everything else starts at 0 and
+    // toggles independently on click, same as Atom 2.
+    const maskInitBits = initAtom2MaskBits(ex.networkBits).split('').map(Number);
+    const maskGridHtml =
+        '<div class="atom1-bitgrid-wrap atom3-mask-wrap" id="atom3MaskWrap-' + qid + '">' +
+            '<div class="panel-hint secondary-copy atom3-mask-hint">Now assemble the subnet mask that matches the boundary you just set above — click a bit to toggle it on/off.</div>' +
+            '<div class="bit-grid atom1-bitgrid" id="atom3MaskGrid-' + qid + '" data-qid="' + qid + '" data-network-bits="' + ex.networkBits + '" data-maskbits="' + initAtom2MaskBits(ex.networkBits) + '">' +
+                renderAtom2BitGridInner(qid, maskInitBits, ex.networkBits) +
+            '</div>' +
+            '<div class="legend secondary-copy">' +
+                '<span><i class="swatch swatch-locked"></i> Locked network bit</span>' +
+                '<span><i class="swatch swatch-borrowed"></i> Mask bit ON (1)</span>' +
+                '<span><i class="swatch swatch-host"></i> Mask bit OFF (0)</span>' +
+            '</div>' +
+        '</div>';
+
+    const liveListHtml =
+        '<div class="atom3-live-wrap">' +
+            '<div class="atom3-live-heading secondary-copy"><i class="fa-solid fa-arrows-rotate" aria-hidden="true"></i> Build each subnet\'s binary ID below — its full network address updates live, and the subnet list itself updates as you move the boundary above</div>' +
+            '<div id="atom3SubnetList-' + qid + '">' + buildAtom3SubnetListHtml(qid, 0, ex) + '</div>' +
+        '</div>';
+
+    return (
+        '<section class="panel atom1-q-panel" id="atom3QPanel-' + qid + '" data-qid="' + qid + '">' +
+            '<div class="panel-head">' +
+                '<span class="panel-index">Q' + index + '</span>' +
+                '<h2>Subnet ID Mapping</h2>' +
+                '<span class="badge atom1-score-badge" id="atom3ScoreBadge-' + qid + '">0/' + ex.answers.length + '</span>' +
+            '</div>' +
+            '<div class="conversion-prompt">' + ex.promptHtml + '</div>' +
+            panel1Html +
+            gridHtml +
+            maskGridHtml +
+            liveListHtml +
+            '<div class="atom1-actions">' +
+                '<button class="primary-btn atom3-verify-btn" data-qid="' + qid + '">Verify Answer</button>' +
+                '<div class="atom1-feedback" id="atom3Feedback-' + qid + '" role="status" aria-live="polite"></div>' +
+            '</div>' +
+        '</section>'
+    );
+}
+
+// Builds the full Atom 3 page from scratch (called once per login) and
+// wires up each question's bit-row interaction plus a single delegated
+// click listener for every Verify/Reset button on the page — same
+// structure as renderAtom1View/renderAtom2View.
+function renderAtom3View(atom3List) {
+    const container = document.getElementById('atom3QuestionsContainer');
+    if (!container) return;
+
+    container.innerHTML = atom3List
+        .map((item, i) => buildAtom3PanelHtml(item.name, exerciseData[item.name], i + 1))
+        .join('');
+
+    atom3List.forEach(item => {
+        attachAtom3Handlers(item.name, exerciseData[item.name]);
+        attachAtom3MaskHandlers(item.name, exerciseData[item.name]);
+    });
+
+    if (!atom3ActionsDelegated) {
+        atom3ActionsDelegated = true;
+        container.addEventListener('click', (e) => {
+            const btn = e.target.closest('.atom3-verify-btn');
+            if (!btn) return;
+            const qid = btn.dataset.qid;
+            const ex = exerciseData[qid];
+            if (!ex) return;
+            if (ex.locked) {
+                resetAtom3Question(qid);
+            } else {
+                verifyAtom3Question(qid);
+            }
+        });
+    }
+}
+
+// Sets the Verify/Reset/Locked button label + disabled state for one
+// question — same rules as setAtom1ButtonState/setAtom2ButtonState.
+function setAtom3ButtonState(qid) {
+    const ex = exerciseData[qid];
+    const btn = document.querySelector('.atom3-verify-btn[data-qid="' + qid + '"]');
+    if (!btn || !ex) return;
+    if (ex.locked) {
+        if (appSettings.mode === 'practice') {
+            btn.textContent = 'Reset';
+            btn.disabled = false;
+        } else {
+            btn.textContent = 'Locked';
+            btn.disabled = true;
+        }
+    } else {
+        btn.textContent = 'Verify Answer';
+        btn.disabled = false;
+    }
+}
+
+// Renders this question's per-question feedback. Reuses
+// buildFeedbackForExercise/renderFeedback exactly as Atom 1/2 do — with
+// answers.length === 1, its all-or-nothing "Not quite" branch already
+// produces the right wording with no changes needed there.
+function updateAtom3QuestionFeedback(qid, ex) {
+    const el = document.getElementById('atom3Feedback-' + qid);
+    if (!el) return;
+    if (!ex || !ex.locked) {
+        el.textContent = '';
+        el.className = 'atom1-feedback';
+        return;
+    }
+    const feedback = buildFeedbackForExercise(ex);
+    renderFeedback(el, feedback);
+    el.className = 'atom1-feedback ' + feedback.cls;
+}
+
+// Updates one question's score badge (max always 1/1 for Atom 3) — same
+// coloring convention as updateAtom1ScoreBadge/updateAtom2ScoreBadge.
+function updateAtom3ScoreBadge(qid, ex) {
+    const badge = document.getElementById('atom3ScoreBadge-' + qid);
+    if (!badge || !ex) return;
+    badge.textContent = (ex.score || 0) + '/' + ex.answers.length;
+    badge.classList.remove('completed-score', 'partial-score');
+    if (ex.locked) {
+        if (ex.score === ex.answers.length) badge.classList.add('completed-score');
+        else if (ex.score > 0) badge.classList.add('partial-score');
+    }
+}
+
+// Applies correct/incorrect styling to each individually-gradable piece of
+// an Atom 3 question — the boundary grid, the mask grid, and each subnet
+// row — using the exact same breakdown gradeAtom3Answer uses to compute
+// the score, so the visual feedback can never drift from the numeric one.
+// Called from applyAtom3LockedUI, which covers both the normal verify path
+// and exam-session restore (via syncAtom3ViewDOM -> applyAtom3LockedUI).
+function applyAtom3ItemFeedback(qid, ex) {
+    const { boundaryCorrect, maskCorrect, rowCorrectArr } = gradeAtom3Answer(ex, ex.userAnswer);
+
+    const boundaryWrap = document.getElementById('atom3BoundaryWrap-' + qid);
+    if (boundaryWrap) {
+        boundaryWrap.classList.remove('atom3-item-correct', 'atom3-item-incorrect');
+        boundaryWrap.classList.add(boundaryCorrect ? 'atom3-item-correct' : 'atom3-item-incorrect');
+    }
+
+    const maskWrap = document.getElementById('atom3MaskWrap-' + qid);
+    if (maskWrap) {
+        maskWrap.classList.remove('atom3-item-correct', 'atom3-item-incorrect');
+        maskWrap.classList.add(maskCorrect ? 'atom3-item-correct' : 'atom3-item-incorrect');
+    }
+
+    document.querySelectorAll('.atom3-bit-row[data-qid="' + qid + '"]').forEach(row => {
+        const pos = parseInt(row.dataset.row, 10);
+        const isCorrect = !!rowCorrectArr[pos];
+        row.classList.remove('atom3-item-correct', 'atom3-item-incorrect');
+        row.classList.add(isCorrect ? 'atom3-item-correct' : 'atom3-item-incorrect');
+    });
+}
+
+// Applies every visual consequence of this question being locked — same
+// shape as applyAtom1LockedUI/applyAtom2LockedUI: the panel's
+// correct/incorrect edge color, the bit grid's AND every subnet row's
+// click-lock, per-item correct/incorrect feedback, the feedback message,
+// the score badge, and the action button label.
+function applyAtom3LockedUI(qid, ex) {
+    const panel = document.getElementById('atom3QPanel-' + qid);
+    const grid = document.getElementById('atom3BitGrid-' + qid);
+    const maskGrid = document.getElementById('atom3MaskGrid-' + qid);
+    const isCorrect = (ex.score || 0) === ex.answers.length;
+
+    if (panel) {
+        panel.classList.remove('correct', 'incorrect');
+        panel.classList.add(isCorrect ? 'correct' : 'incorrect');
+    }
+    if (grid) grid.classList.add('atom1-locked');
+    if (maskGrid) maskGrid.classList.add('atom1-locked');
+    document.querySelectorAll('.atom3-bit-row[data-qid="' + qid + '"]').forEach(row => {
+        row.classList.add('atom3-locked');
+    });
+
+    applyAtom3ItemFeedback(qid, ex);
+
+    updateAtom3QuestionFeedback(qid, ex);
+    updateAtom3ScoreBadge(qid, ex);
+    setAtom3ButtonState(qid);
+}
+
+// Grades and locks one Atom 3 question — per answerable item (boundary,
+// mask, each subnet row), not all-or-nothing (see gradeAtom3Answer).
+function verifyAtom3Question(qid) {
+    const ex = exerciseData[qid];
+    if (!ex || ex.locked) return;
+
+    const userAnswer = collectAtom3Answer(qid);
+    ex.userAnswer = userAnswer;
+
+    const { score, allCorrect } = gradeAtom3Answer(ex, userAnswer);
+    ex.score = score;
+    ex.isPartial = score > 0 && !allCorrect;
+    ex.locked = true;
+
+    applyAtom3LockedUI(qid, ex);
+    updateAtom3NavScore();
+    updateSummaryPanel();
+
+    if (allCorrect) triggerConfetti();
+
+    if (appSettings.mode === 'exam') {
+        saveExamSession();
+        if (checkIfAllAnswered()) {
+            stopTimer();
+            setTimeout(() => {
+                showScoreSummaryModal('Congratulations! All exercises completed before time ran out!', 'success');
+            }, 500);
+        }
+    }
+}
+
+// Resets one Atom 3 question — practice mode only, mirroring
+// resetAtom1Question's/resetAtom2Question's exam-mode guard. Resetting the
+// grid to 0 borrowed bits also rebuilds the subnet row list from scratch
+// (see updateAtom3Grid), so nothing further needs clearing here.
+function resetAtom3Question(qid) {
+    if (appSettings.mode === 'exam') {
+        showAlertModal('Reset Not Allowed', 'Reset is not allowed in Exam Mode.');
+        return;
+    }
+    const ex = exerciseData[qid];
+    if (!ex) return;
+
+    ex.userAnswer = '';
+    ex.score = 0;
+    ex.isPartial = false;
+    ex.locked = false;
+
+    updateAtom3Grid(qid, ex, 0);
+    updateAtom3MaskGrid(qid, ex, initAtom2MaskBits(ex.networkBits));
+
+    const panel = document.getElementById('atom3QPanel-' + qid);
+    if (panel) panel.classList.remove('correct', 'incorrect');
+    const grid = document.getElementById('atom3BitGrid-' + qid);
+    if (grid) grid.classList.remove('atom1-locked');
+    const maskGrid = document.getElementById('atom3MaskGrid-' + qid);
+    if (maskGrid) maskGrid.classList.remove('atom1-locked');
+
+    // Rows/mask-grid contents are already fresh (rebuilt above via
+    // updateAtom3Grid/updateAtom3MaskGrid), but the outer wrapper elements
+    // persist across resets and carry their own item-feedback classes —
+    // those need clearing explicitly so a fresh attempt doesn't start out
+    // still colored from the previous one.
+    const boundaryWrap = document.getElementById('atom3BoundaryWrap-' + qid);
+    if (boundaryWrap) boundaryWrap.classList.remove('atom3-item-correct', 'atom3-item-incorrect');
+    const maskWrap = document.getElementById('atom3MaskWrap-' + qid);
+    if (maskWrap) maskWrap.classList.remove('atom3-item-correct', 'atom3-item-incorrect');
+
+    updateAtom3QuestionFeedback(qid, null);
+    updateAtom3ScoreBadge(qid, ex);
+    setAtom3ButtonState(qid);
+    updateAtom3NavScore();
+    updateSummaryPanel();
+}
+
+// Aggregates every atom3-q* exercise into a single X/N readout on the
+// sidebar's "Atom 3" nav entry, same as updateAtom1NavScore/updateAtom2NavScore.
+function updateAtom3NavScore() {
+    const scoreEl = document.getElementById('score-atom3');
+    if (!scoreEl) return;
+    let got = 0;
+    let total = 0;
+    for (const file in exerciseData) {
+        if (file.indexOf('atom3-q') === 0) {
+            const ex = exerciseData[file];
+            got += Number(ex.score || 0);
+            total += ex.answers.length;
+        }
+    }
+    scoreEl.textContent = got + '/' + total;
+    scoreEl.classList.remove('completed-score', 'partial-score');
+    if (total > 0 && got === total) {
+        scoreEl.classList.add('completed-score');
+    } else if (got > 0) {
+        scoreEl.classList.add('partial-score');
+    }
+}
+
+// Re-applies every Atom 3 question's current exerciseData state — the
+// grid's boundary, each subnet row's clicked-in bits, locked styling,
+// feedback, badge — onto the already-rendered DOM. Called once per login,
+// after exam-session restore, same rationale as syncAtom1ViewDOM/
+// syncAtom2ViewDOM. The grid rebuild (updateAtom3Grid) always regenerates
+// a fresh, zeroed row list for the restored boundary first; any saved
+// per-row bits are then layered back on top, position by position — only
+// applied when they still match that boundary's row width, since a saved
+// answer from a different boundary no longer corresponds to anything on
+// screen.
+function syncAtom3ViewDOM() {
+    for (const file in exerciseData) {
+        if (file.indexOf('atom3-q') !== 0) continue;
+        const ex = exerciseData[file];
+        if (!ex) continue;
+
+        const parts = (typeof ex.userAnswer === 'string' && ex.userAnswer.length) ? ex.userAnswer.split('::') : [];
+        const borrowed = parseInt(parts[0], 10);
+        const safeBorrowed = isNaN(borrowed) ? 0 : Math.max(0, Math.min(borrowed, ex.maxBorrow));
+        updateAtom3Grid(file, ex, safeBorrowed);
+
+        const savedMaskStr = parts.length > 1 ? parts[1] : '';
+        updateAtom3MaskGrid(file, ex, (savedMaskStr && savedMaskStr.length === 32) ? savedMaskStr : initAtom2MaskBits(ex.networkBits));
+
+        const savedRowsStr = parts.length > 2 ? parts[2] : '';
+        if (savedRowsStr) {
+            savedRowsStr.split(',').forEach((bitsStr, pos) => {
+                if (bitsStr && bitsStr.length === safeBorrowed) {
+                    updateAtom3Row(file, pos, bitsStr.split('').map(Number));
+                }
+            });
+        }
+
+        if (ex.locked) {
+            applyAtom3LockedUI(file, ex);
+        } else {
+            setAtom3ButtonState(file);
+        }
+    }
+    updateAtom3NavScore();
+}
+
+// --- Sidebar navigation into the Atom 3 view (Tools → Atoms → Atom 3) ---
+// Mirrors showAtom1Page/showAtom2Page exactly.
+function showAtom3Page() {
+    document.querySelectorAll('.sidebar li').forEach(l => l.classList.remove('active'));
+    const navItem = document.getElementById('nav-atom3');
+    if (navItem) navItem.classList.add('active');
+
+    document.getElementById('exerciseArea').style.display = 'none';
+    document.getElementById('subnetVisualizerView').style.display = 'none';
+    document.getElementById('atomPlaceholderView').style.display = 'none';
+    document.getElementById('atom1View').style.display = 'none';
+    document.getElementById('atom2View').style.display = 'none';
+    document.getElementById('atom3View').style.display = 'flex';
+    document.getElementById('timerContainer').style.display = timerIntervalId ? 'flex' : 'none';
+
+    currentFile = ''; // no single graded exercise is "current" on this page
+
+    closeSampleOutputModal();
+    updateConsoleDrawerTab(false);
+
+    closeSidebarIfMobile();
+}
+
 function renderQuestionHtml(qid, q) {
+    if (q.type === 'atom1') return renderAtom1QuestionHtml(qid, q);
+    // Atom 2 lives entirely in its own dedicated view, rendered directly
+    // from exerciseData via buildAtom2PanelHtml (see renderAtom2View) —
+    // this .html field is never read for it, so nothing further to build.
+    if (q.type === 'atom2') return '';
+    // Same rationale for Atom 3 (see renderAtom3View/buildAtom3PanelHtml).
+    if (q.type === 'atom3') return '';
     let inputHtml = '';
     let answerRowClass = 'conversion-answer-row';
     if (q.type === 'd2b') {
@@ -1201,6 +3436,10 @@ function renderQuestionHtml(qid, q) {
 // scoping is needed on the selectors.
 function collectConversionAnswer(ex) {
     if (!ex) return '';
+    if (ex.type === 'atom1') {
+        const grid = document.getElementById('atom1BitGrid-' + currentFile);
+        return grid ? (grid.dataset.borrowed || '0') : (ex.userAnswer || '');
+    }
     if (ex.type === 'd2b') {
         return Array.from(document.querySelectorAll('.bitbox')).map(b => b.value || '_').join('');
     }
@@ -1323,6 +3562,11 @@ function restoreConversionAnswer(ex) {
             const idx = parseInt(el.dataset.oct, 10);
             el.value = parts[idx] || '';
         });
+    } else if (ex.type === 'atom1') {
+        const borrowed = parseInt(ex.userAnswer, 10);
+        if (!isNaN(borrowed)) {
+            updateAtom1Grid(currentFile, ex, Math.max(0, Math.min(borrowed, ex.maxBorrow)));
+        }
     }
 }
 
@@ -1834,6 +4078,8 @@ function attachConversionInputHandlers(ex) {
         });
     } else if (ex.type === 'ip_d2b' || ex.type === 'mask_d2b') {
         attachExpandableOctetHandlers();
+    } else if (ex.type === 'atom1') {
+        attachAtom1Handlers(currentFile, ex);
     } else {
         document.querySelectorAll('.answer-input-num, .ip-octet-bin, .ip-octet-dec').forEach(inp => {
             inp.addEventListener('input', () => saveConversionProgress());
@@ -1886,6 +4132,11 @@ function setInputsDisabled(disabled) {
                 inp.classList.remove('locked');
                 inp.removeAttribute('title');
             }
+        });
+        // Atom 1's answer mechanism is clicking bits, not typing into an
+        // <input>, so it gets its own lock toggle (pointer-events, see CSS).
+        document.querySelectorAll('.atom1-bitgrid').forEach(grid => {
+            grid.classList.toggle('atom1-locked', disabled);
         });
     }
     
@@ -1960,6 +4211,10 @@ function showSubnetVisualizer() {
 
     document.getElementById('exerciseArea').style.display = 'none';
     document.getElementById('timerContainer').style.display = 'none';
+    document.getElementById('atomPlaceholderView').style.display = 'none';
+    document.getElementById('atom1View').style.display = 'none';
+    document.getElementById('atom2View').style.display = 'none';
+    document.getElementById('atom3View').style.display = 'none';
     document.getElementById('subnetVisualizerView').style.display = 'flex';
 
     currentFile = ''; // no graded exercise is "current" while the tool is open
@@ -1976,9 +4231,42 @@ function showSubnetVisualizer() {
     closeSidebarIfMobile();
 }
 
+// --- ATOM PAGES (ungraded, placeholder) — sidebar sub-navigation under Subnetify ---
+// Swaps the main content column to a simple "coming soon" placeholder view.
+// Mirrors showSubnetVisualizer's pattern (hide every other view, clear
+// currentFile, close the console drawer) so the same page-switching rules
+// apply uniformly once real content replaces this placeholder.
+function showAtomPage(atomNumber) {
+    document.querySelectorAll('.sidebar li').forEach(l => l.classList.remove('active'));
+    const navItem = document.getElementById(`nav-atom${atomNumber}`);
+    if (navItem) navItem.classList.add('active');
+
+    document.getElementById('exerciseArea').style.display = 'none';
+    document.getElementById('timerContainer').style.display = 'none';
+    document.getElementById('subnetVisualizerView').style.display = 'none';
+    document.getElementById('atom1View').style.display = 'none';
+    document.getElementById('atom2View').style.display = 'none';
+    document.getElementById('atom3View').style.display = 'none';
+    document.getElementById('atomPlaceholderView').style.display = 'block';
+    document.getElementById('atomPlaceholderTitle').textContent = `Atom ${atomNumber}`;
+
+    currentFile = ''; // no graded exercise is "current" while a placeholder page is open
+
+    // Same reasoning as showSubnetVisualizer: the console drawer/output
+    // panel is exercise-specific and has no meaning here.
+    closeSampleOutputModal();
+    updateConsoleDrawerTab(false);
+
+    closeSidebarIfMobile();
+}
+
 function switchExercise(name, el) {
     currentFile = name;
     document.getElementById('subnetVisualizerView').style.display = 'none';
+    document.getElementById('atomPlaceholderView').style.display = 'none';
+    document.getElementById('atom1View').style.display = 'none';
+    document.getElementById('atom2View').style.display = 'none';
+    document.getElementById('atom3View').style.display = 'none';
     document.getElementById('exerciseArea').style.display = 'block';
     // The visualizer hides the timer bar (it's exercise-specific chrome)
     // without stopping the underlying interval — re-show it here if an
@@ -2071,7 +4359,7 @@ function switchExercise(name, el) {
     const feedbackEl = document.getElementById('feedback');
     if (ex.locked) {
         const feedback = buildFeedbackForExercise(ex);
-        feedbackEl.textContent = feedback.text;
+        renderFeedback(feedbackEl, feedback);
         feedbackEl.className = feedback.cls;
     } else {
         feedbackEl.textContent = "";
@@ -2153,7 +4441,8 @@ function buildFeedbackForExercise(ex) {
 
     if (perfect) {
         return {
-            text: ex.isConversionQuestion ? "✨ Correct! ✨" : "✨ Perfect! All lines in correct order! ✨",
+            text: ex.isConversionQuestion ? "Correct!" : "Perfect! All lines in correct order!",
+            icon: "fa-solid fa-sparkles",
             cls: "success show",
             perfect: true
         };
@@ -2165,6 +4454,7 @@ function buildFeedbackForExercise(ex) {
         if (score === 0 && isConversionAnswerEmpty(ex)) {
             return {
                 text: "No answer submitted.",
+                icon: null,
                 cls: "error show",
                 perfect: false
             };
@@ -2173,28 +4463,45 @@ function buildFeedbackForExercise(ex) {
         // the student reset and try again, and exam mode has no reset, so
         // showing it would double as an answer key mid-exam.
         if (totalLines > 1) {
-            // Octet-scored (Phase 3 · IP Dec→Bin / Phase 4 · IP Bin→Dec):
-            // partial credit is possible, so surface how many octets were
-            // right rather than a flat "not quite".
+            // Octet-scored (Phase 3 · IP Dec→Bin / Phase 4 · IP Bin→Dec) or
+            // item-scored (Atom 3: boundary + mask + each subnet row):
+            // partial credit is possible either way, so surface how many
+            // were right rather than a flat "not quite".
+            const unit = ex.type === 'atom3' ? 'items' : 'octets';
             return {
                 text: (appSettings.mode === 'practice')
-                    ? `${score}/${totalLines} octets correct — try again.`
-                    : `${score}/${totalLines} octets correct.`,
+                    ? `${score}/${totalLines} ${unit} correct — try again.`
+                    : `${score}/${totalLines} ${unit} correct.`,
+                icon: null,
                 cls: score > 0 ? "warning show" : "error show",
                 perfect: false
             };
         }
         return {
             text: "Not quite" + (appSettings.mode === 'practice' ? " — try again." : "."),
+            icon: null,
             cls: "error show",
             perfect: false
         };
     }
     return {
         text: `Progress: ${score}/${totalLines} correct.`,
+        icon: null,
         cls: "warning show",
         perfect: false
     };
+}
+
+// Renders a buildFeedbackForExercise() result into a target element as
+// FontAwesome icon + text (when an icon is present) or plain text
+// otherwise. Centralized here so every call site renders feedback the
+// same way instead of duplicating the innerHTML-vs-textContent choice.
+function renderFeedback(targetEl, feedback) {
+    if (feedback.icon) {
+        targetEl.innerHTML = `<i class="${feedback.icon}" aria-hidden="true"></i> ${feedback.text}`;
+    } else {
+        targetEl.textContent = feedback.text;
+    }
 }
 
 function checkAnswers() {
@@ -2249,7 +4556,7 @@ function checkAnswers() {
 
     const msg = document.getElementById('feedback');
     const feedback = buildFeedbackForExercise(ex);
-    msg.textContent = feedback.text;
+    renderFeedback(msg, feedback);
     msg.className = feedback.cls;
     if (feedback.perfect) {
         // Bigger & longer confetti
@@ -2319,6 +4626,9 @@ function resetCurrentExercise() {
         const qCard = document.querySelector('.conversion-question');
         if (qCard) qCard.classList.remove('correct', 'incorrect');
         clearOctetFeedback(); // Phase 3/4: remove leftover per-octet coloring from the prior attempt
+        if (ex.type === 'atom1') {
+            updateAtom1Grid(currentFile, ex, 0);
+        }
     } else {
         // Legacy: fill-in-the-blank reset
         ex.userProgress = ex.userProgress.map(() => "");
@@ -3820,7 +6130,7 @@ function renderPanel4(d) {
     const trExp = document.createElement('tr');
     trExp.className = 'expansion-row';
     trExp.innerHTML =
-      '<td class="expansion-index" title="' + hiddenCount + ' hidden rows">&#8942;</td>' +
+      '<td class="expansion-index" title="' + hiddenCount + ' hidden rows"><i class="fa-solid fa-ellipsis-vertical" aria-hidden="true"></i></td>' +
       '<td colspan="3"><button class="expansion-btn" id="subnetExpandBtn"><i class="fa-solid fa-eye"></i> Show ' + hiddenCount + ' Hidden Subnets</button></td>';
     el.subnetTableBody.appendChild(trExp);
     document.getElementById('subnetExpandBtn').addEventListener('click', () => {
@@ -3937,7 +6247,7 @@ function renderPanel5(d, subnetRows) {
     const trExp = document.createElement('tr');
     trExp.className = 'expansion-row';
     trExp.innerHTML =
-      '<td class="expansion-index" title="' + hiddenCount + ' hidden rows">&#8942;</td>' +
+      '<td class="expansion-index" title="' + hiddenCount + ' hidden rows"><i class="fa-solid fa-ellipsis-vertical" aria-hidden="true"></i></td>' +
       '<td colspan="2"><button class="expansion-btn" id="hostExpandBtn"><i class="fa-solid fa-eye"></i> Show ' + hiddenCount + ' Hidden Hosts</button></td>';
     el.hostTableBody.appendChild(trExp);
     document.getElementById('hostExpandBtn').addEventListener('click', () => {
