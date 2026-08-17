@@ -4310,6 +4310,28 @@ button:focus-visible, input:focus-visible {
   border: none;
 }
 
+/* ---------- Atom 3: wrapped 8-bit-per-row subnet index strip ----------
+   Scales the "Subnet Index" answer box from 1 up to Atom 3's max
+   borrowed-bit count: past 8 bits the strip wraps into additional 8-bit
+   rows (see renderAtom3SubnetIndexInner in script.js), each with its own
+   place-value weight row directly above its own bits, rather than one
+   weight row spanning every bit — so the bit-to-weight mapping stays
+   legible and the row never needs to overflow its 162px-wide column
+   sideways. Mirrors the wrapping approach in
+   atom3_subnet_mockup_desktop.html / _mobile.html, adapted to reuse this
+   app's own .weight-row-compact/.unified-octet-cell/.bit-cell component
+   language instead of introducing parallel styling. */
+.atom3-bit-rows-wrapped {
+  display: flex;
+  flex-direction: column;
+}
+.atom3-bit-row-pair + .atom3-bit-row-pair {
+  margin-top: 6px;
+}
+.atom3-bit-row-pair .weight-row-compact {
+  margin-bottom: 2px;
+}
+
 .atom3-bit-row.atom3-locked {
   pointer-events: none;
   opacity: 0.65;
@@ -4400,13 +4422,184 @@ button:focus-visible, input:focus-visible {
 }
 /* The boundary/mask wrappers get a touch of left padding + rounded corners
    so the inset accent reads as a deliberate border treatment rather than
-   bleeding flush into the panel's own edge. */
+   bleeding flush into the panel's own edge. Each subnet row (see
+   .subnet-row below) already declares its own border-radius, so the inset
+   accent there needs no override — the whole row (index block + composed
+   address) picks up the same colored edge as one unit. */
 .atom1-bitgrid-wrap.atom3-item-correct,
 .atom1-bitgrid-wrap.atom3-item-incorrect {
   padding-left: 10px;
   border-radius: var(--radius-sm);
 }
-.atom3-bit-row.atom3-item-correct,
-.atom3-bit-row.atom3-item-incorrect {
-  border-radius: 4px;
+/* ============================================================
+   ATOM 3 — REDESIGNED LIVE SUBNET LIST
+   Ported from atom3_subnet_mockup_combined.html. Replaces the old flat
+   "octet-bits-group" answer strip (which rendered the student's in-
+   progress Subnet Index and the read-only derived network address with
+   IDENTICAL visual language, making it easy to mistake one for the
+   other) with two visually distinct blocks:
+     - .idx-block  — the amber-bordered, pill-headed answer surface the
+       student actually builds by clicking (mirrors the mockup's
+       "Subnet Index" card, including its wrap-into-8-bit-rows scaling
+       from 1 up to 16 borrowed bits).
+     - .addr-row   — a quieter, locked/borrowed/host-colored readout of
+       the full 32-bit address that block currently represents (mirrors
+       the mockup's per-octet total/weights/bits/label column).
+   Both reuse this file's existing --locked/--borrowed/--host/--font-mono
+   custom properties (the mockup used hardcoded hex, since it was a
+   standalone demo) so they inherit the app's real theme automatically.
+   The mockup's manual Desktop/Mobile "device-chrome" preview toggle has
+   no equivalent here — this app is just naturally responsive — so its
+   `.frame-shell.device-mobile` overrides are re-expressed below as a
+   `@container` query keyed off each subnet-row's own live width instead.
+   ============================================================ */
+.atom3-subnet-group {
+  container-type: inline-size;
+}
+
+.subnet-row {
+  display: grid;
+  grid-template-columns: minmax(200px, max-content) minmax(0, 1fr);
+  align-items: start;
+  column-gap: clamp(16px, 2.4cqi, 34px);
+  row-gap: 12px;
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border-soft);
+  border-radius: 10px;
+  padding: clamp(12px, 1.6cqi, 20px) clamp(14px, 1.8cqi, 22px) clamp(14px, 1.8cqi, 20px);
+  margin-bottom: 12px;
+}
+@container (max-width: 480px) {
+  .subnet-row { grid-template-columns: 1fr; }
+}
+
+/* ---------- Subnet Index answer block ---------- */
+.idx-block {
+  border: 1px solid var(--borrowed);
+  background: rgba(245, 158, 11, 0.05);
+  border-radius: 10px;
+  padding: clamp(10px, 1.3cqi, 16px) clamp(12px, 1.5cqi, 18px) clamp(12px, 1.5cqi, 16px);
+}
+.idx-pill-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
+.idx-pill-label { font-size: clamp(0.6rem, 1cqi, 0.75rem); font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #fcd34d; white-space: nowrap; }
+.idx-hint { font-weight: 400; text-transform: none; letter-spacing: 0; color: #c99a4a; opacity: 0.85; }
+.idx-pill-badge {
+  min-width: 34px; padding: 4px 11px; border-radius: 999px;
+  background: rgba(245, 158, 11, 0.18); border: 1.5px solid var(--borrowed); color: #fcd34d;
+  font-family: var(--font-mono); font-weight: 800; font-size: clamp(1.02rem, 1.6cqi, 1.35rem);
+  text-align: center; line-height: 1.2; transition: background 0.15s;
+}
+
+.bit-rows { display: flex; flex-direction: column; gap: clamp(9px, 1.2cqi, 14px); }
+.bit-row-caption { font-size: clamp(0.56rem, 0.9cqi, 0.7rem); font-family: var(--font-mono); letter-spacing: 0.03em; color: var(--text-dim); margin-bottom: 3px; }
+.bit-row-inner { display: flex; gap: clamp(4px, 0.8cqi, 8px); }
+/* Bit columns grow to fill however much horizontal room the idx-block
+   actually has (up to a generous cap), instead of being pinned to a
+   near-mobile 34px max regardless of how wide the panel is. */
+.bit-col { flex: 1 1 0; min-width: 26px; max-width: 68px; display: flex; flex-direction: column; align-items: center; gap: clamp(3px, 0.5cqi, 6px); }
+.bit-weight { font-family: var(--font-mono); font-weight: 700; font-size: clamp(0.42rem, 1.4cqi, 0.72rem); color: var(--text-dim); opacity: 0.6; line-height: 1; white-space: nowrap; }
+.bit-weight.active { color: #fcd34d; opacity: 1; }
+.idx-bit {
+  width: 100%; aspect-ratio: 0.85; display: flex; align-items: center; justify-content: center;
+  border-radius: 5px; background: rgba(245, 158, 11, 0.14); border: 1.5px solid rgba(245, 158, 11, 0.35);
+  color: #fcd34d; font-family: var(--font-mono); font-weight: 700;
+  font-size: clamp(0.68rem, 2.6cqi, 1.35rem); cursor: pointer; user-select: none;
+  transition: background 0.12s, border-color 0.12s, transform 0.12s;
+}
+.idx-bit:hover { background: rgba(245, 158, 11, 0.24); transform: translateY(-1px); }
+.idx-bit.on { background: rgba(245, 158, 11, 0.34); border-color: var(--borrowed); }
+.idx-bit:focus-visible { outline: 2px solid var(--host); outline-offset: 2px; }
+.idx-viz-label { font-size: clamp(0.6rem, 0.9cqi, 0.72rem); color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.03em; text-align: center; margin-top: 8px; }
+
+/* Locked (verified) state reuses the same lock treatment every other
+   Atom 1/2/3 grid already uses — .atom3-locked is still applied to this
+   same element (it keeps its "atom3-bit-row" class, see script.js). */
+.idx-block .idx-bit { pointer-events: auto; }
+
+/* ---------- Full network address block ---------- */
+.addr-row { display: flex; flex-wrap: wrap; gap: clamp(14px, 2cqi, 28px); }
+/* Each octet grows to claim an equal share of whatever width .addr-row
+   actually has (rather than shrink-wrapping to its fixed-size bits and
+   leaving the rest of a wide desktop panel empty), wrapping to fewer per
+   row — and eventually the dedicated mobile layout below — as that
+   shrinks. min-width keeps a row of 8 bits legible before it wraps. */
+.addr-octet {
+  display: grid;
+  grid-template-columns: 1fr;
+  grid-template-areas: "total" "weights" "bits" "label";
+  row-gap: 3px;
+  justify-items: center;
+  flex: 1 1 150px;
+  min-width: 150px;
+  max-width: 280px;
+}
+.addr-total-box { grid-area: total; font-family: var(--font-mono); font-weight: 700; font-size: clamp(1.05rem, 2.6cqi, 1.7rem); color: var(--text-primary); }
+.addr-total-dot { color: var(--text-dim); font-weight: 400; }
+.addr-weight-row { grid-area: weights; display: flex; width: 100%; }
+.addr-weight { font-family: var(--font-mono); font-size: clamp(0.5rem, 0.85cqi, 0.68rem); flex: 1 1 0; min-width: 0; text-align: center; opacity: 0.4; color: var(--text-dim); }
+.addr-weight.lit-locked { color: var(--locked); opacity: 1; font-weight: 700; }
+.addr-weight.lit-borrowed { color: var(--borrowed); opacity: 1; font-weight: 700; }
+.addr-weight.lit-host { color: var(--host); opacity: 1; font-weight: 700; }
+.addr-bits { grid-area: bits; display: flex; width: 100%; border: 1px solid var(--border-soft); border-radius: 4px; overflow: hidden; }
+.addr-bit { flex: 1 1 0; min-width: 0; height: clamp(22px, 3.4cqi, 40px); display: flex; align-items: center; justify-content: center; font-size: clamp(0.72rem, 1.8cqi, 1.05rem); font-family: var(--font-mono); position: relative; }
+.addr-bit.locked { background: var(--locked-soft); color: #93c5fd; }
+.addr-bit.borrowed { background: var(--borrowed-soft); color: #fcd34d; }
+.addr-bit.host { background: var(--host-soft); color: #6ee7b7; }
+.addr-bit.curtain::after { content: ''; position: absolute; right: 0; top: 0; bottom: 0; border-right: 2px dashed var(--borrowed); }
+.addr-octet-label { grid-area: label; font-size: clamp(0.62rem, 0.9cqi, 0.75rem); color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.03em; }
+
+/* Narrow layout (container itself, not the browser window, drives this —
+   e.g. sidebar open on a laptop, or any phone): total moves from a
+   top-of-column badge to a flush-right column, one octet per full-width
+   row — the same swap the mockup's Mobile preview makes, just triggered
+   by the row's own live width instead of a manual toggle. */
+@container (max-width: 480px) {
+  .addr-row { flex-direction: column; gap: 8px; }
+  .addr-octet {
+    width: 100%;
+    max-width: none;
+    flex: none;
+    min-width: 0;
+    grid-template-columns: 1fr 52px;
+    grid-template-areas: "label total" "weights total" "bits total";
+    align-items: center;
+    justify-items: start;
+    row-gap: 4px;
+    column-gap: 10px;
+    background: rgba(255, 255, 255, 0.015);
+    border: 1px solid var(--border-soft);
+    border-radius: 10px;
+    padding: 8px 0 8px 10px;
+  }
+  .addr-total-box {
+    height: 100%;
+    width: 52px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.15rem;
+    background: rgba(148, 163, 184, 0.12);
+    border-left: 1px solid #475569;
+    border-radius: 0 9px 9px 0;
+  }
+  .addr-total-dot { display: none; }
+  .addr-octet.boundary .addr-total-box {
+    background: rgba(245, 158, 11, 0.12);
+    border-left-color: var(--borrowed);
+    color: #fcd34d;
+  }
+  .addr-octet-label { font-size: 0.58rem; }
+}
+
+/* Overrides the older .atom3-row-network rules (defined earlier in this
+   file for the previous octet-bits-row markup) now that its child is
+   .addr-row instead — later rule of equal specificity wins the cascade. */
+.atom3-row-network {
+  display: block;
+  justify-self: stretch;
+  width: 100%;
+}
+.atom3-row-network .addr-row {
+  flex-wrap: wrap;
+  row-gap: 12px;
 }

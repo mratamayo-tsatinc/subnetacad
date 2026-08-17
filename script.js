@@ -2601,65 +2601,106 @@ function atom3SubnetIndicesForBorrowed(borrowedBits) {
 // value the old, now-removed ".octet-total-compact" div used to show on
 // its own, so nothing is lost by dropping that separate display; the
 // pill's circle IS the total now. The circle shows the LIVE value the
-// currently-clicked bits represent, not the static target, so it updates
-// in real time as the student clicks and visibly turns into the target
-// subnet number once they've got it right — since it only ever reflects
-// the student's own input, it's safe to show in both modes. The target
-// number itself (which subnet this row is FOR) is answer-relevant, so
-// that's only surfaced via the tooltip, and only in Practice Mode.
+// currently-clicked bits represent, not the static target — it updates in
+// real time as the student clicks, but is deliberately NEVER recolored or
+// otherwise flagged when it happens to equal the target. Doing so would
+// let a student find the right answer by randomly toggling bits until the
+// badge turns green, rather than by reasoning out the subnet ID.
+// Correctness is only ever revealed after Verify, and then at the level of
+// the whole row (see applyAtom3ItemFeedback, which colors the containing
+// .subnet-row), not on this live badge. The target number itself (which
+// subnet this row is FOR) is answer-relevant, so that's only surfaced via
+// the tooltip, and only in Practice Mode.
+//
+// WRAPPING (per atom3_subnet_mockup_desktop.html / _mobile.html): a
+// single flat row of bit-cells only reads cleanly up to about 8 bits —
+// beyond that it either overflows its column sideways or the cells shrink
+// past legibility. Instead, the strip wraps into 8-bit-wide rows, and
+// EACH row gets its own place-value weight strip directly above its own
+// bits, rather than one weight row spanning the full (possibly 9-10-bit)
+// pattern. That keeps the "this bit is worth this much" mapping legible
+// at any borrowed-bit width Atom 3 can generate (up to 10), the same way
+// the mockups scale cleanly from 1 up to 16 bits. Bit indices in data-idx
+// stay GLOBAL (position within the full pattern, not per-row), so nothing
+// downstream (updateAtom3Row's click handler, grading) needs to change.
 function renderAtom3SubnetIndexInner(qid, rowPos, bitsArr, subnetNum) {
     const n = bitsArr.length;
     const total = n ? parseInt(bitsArr.join(''), 2) : 0;
+    const rowsCount = Math.max(1, Math.ceil(n / 8));
 
-    let weightsHtml = '';
-    for (let k = 0; k < n; k++) {
-        const w = Math.pow(2, n - 1 - k);
-        const lit = bitsArr[k] === 1;
-        weightsHtml += '<span class="weight-num ' + (lit ? 'weight-lit weight-lit-borrowed' : 'weight-muted') + '">' + w + '</span>';
+    let rowsHtml = '<div class="bit-rows">';
+    for (let r = 0; r < rowsCount; r++) {
+        const start = r * 8;
+        const chunk = bitsArr.slice(start, start + 8);
+        const startPow = n - 1 - start; // place-value exponent of this row's leftmost bit
+
+        let caption = '';
+        if (rowsCount > 1) {
+            const hi = Math.pow(2, startPow);
+            const lo = Math.pow(2, startPow - chunk.length + 1);
+            caption = '<div class="bit-row-caption">' + (r === 0 ? 'MSB &middot; ' : '') + hi + ' &rarr; ' + lo + (r === rowsCount - 1 ? ' &middot; LSB' : '') + '</div>';
+        }
+
+        let inner = '<div class="bit-row-inner">';
+        chunk.forEach((v, i) => {
+            const globalIdx = start + i;
+            const weight = Math.pow(2, startPow - i);
+            inner += '<div class="bit-col">' +
+                        '<span class="bit-weight' + (v === 1 ? ' active' : '') + '">' + weight + '</span>' +
+                        '<div class="idx-bit' + (v === 1 ? ' on' : '') + '" role="button" tabindex="0" ' +
+                          'data-idx="' + globalIdx + '" ' +
+                          'aria-label="Bit worth ' + weight + ', currently ' + v + '">' + v + '</div>' +
+                      '</div>';
+        });
+        inner += '</div>';
+
+        rowsHtml += caption + inner;
     }
+    rowsHtml += '</div>';
 
-    let cellsHtml = '';
-    for (let k = 0; k < n; k++) {
-        cellsHtml += '<div class="bit-cell borrowed" data-idx="' + k + '" role="button" tabindex="0" title="Click to toggle this bit"><span class="bit-value">' + bitsArr[k] + '</span></div>';
-    }
-
+    // The target subnet number itself is answer-relevant, so it's only
+    // stated outright in Practice Mode (as both a caption and a tooltip on
+    // the pill row) — Exam Mode gets a generic caption instead.
     const pillTitleAttr = (appSettings.mode === 'practice')
         ? ' title="This row builds Subnet ' + subnetNum + '"'
         : '';
-    const pillHtml =
-        '<div class="atom3-subnet-pill"' + pillTitleAttr + '>' +
-            '<span class="atom3-subnet-pill-label">Subnet</span>' +
-            '<span class="atom3-subnet-pill-circle">' + total + '</span>' +
-        '</div>';
+    const targetLabelHtml = (appSettings.mode === 'practice')
+        ? '<div class="idx-viz-label">Target: Subnet ' + subnetNum + '</div>'
+        : '<div class="idx-viz-label">Subnet Index</div>';
 
-    return '<div class="atom3-subnet-index-header">' +
-                pillHtml +
+    return '<div class="idx-pill-row"' + pillTitleAttr + '>' +
+                '<span class="idx-pill-label">Subnet Index <span class="idx-hint">&middot; tap bits to answer</span></span>' +
+                '<span class="idx-pill-badge">' + total + '</span>' +
             '</div>' +
-        (n > 0 ? '<div class="weight-row weight-row-compact">' + weightsHtml + '</div>' : '') +
-        '<div class="unified-octet-cell atom3-bit-row" id="atom3Row-' + qid + '-' + rowPos + '" data-qid="' + qid + '" data-row="' + rowPos + '" data-bits="' + bitsArr.join('') + '">' + cellsHtml + '</div>';
+            rowsHtml +
+            targetLabelHtml;
 }
 
-// Wraps renderAtom3SubnetIndexInner in the same .octet-bits-group column
-// container Panel 4/5's own compact bit visualizations already use
-// (plain global CSS, not scoped to the SubnetVisualizer IIFE), so it
-// inherits identical centering/spacing with no new CSS needed. Carries
-// data-qid/data-row so updateAtom3Row can find and re-render it directly,
-// and data-subnet so updateAtom3Row can restate the same target subnet
-// number in the caption on every re-render without needing it re-passed
-// in from the click handler.
+// Wraps renderAtom3SubnetIndexInner in the "idx-block" answer-card markup
+// ported from atom3_subnet_mockup_combined.html — an amber-bordered card
+// with its own pill header (live decimal readout) and a bit strip that
+// wraps into additional 8-bit rows past 8 borrowed bits, scaling cleanly
+// from 1 up to Atom 3's max of 10 (the mockup itself scales 1-16). Unlike
+// the old Panel-4-style "octet-bits-group" this replaced, no width needs
+// computing here: .idx-block sizes to its own content (its cqi-based
+// label sizing keys off the row's own container, see .atom3-subnet-group
+// in styles.css), and the grid column it sits in (.subnet-row, "auto 1fr")
+// sizes around it automatically.
 //
-// The explicit pixel width belongs HERE, on the outer .octet-bits-group —
-// not on the inner bit strip, which was this function's original bug.
-// .octet-bits-group carries container-type:inline-size (needed so the
-// decimal total's cqi-based font-size scales correctly), and per the
-// matching comment on Panel 4's own buildBorrowedPatternViz, that
-// containment strips the box's ability to size itself from its own
-// content: left at auto width, it collapses toward ~0, so the caption
-// below it has almost no room and wraps onto two lines instead of
-// staying on one.
+// Carries data-qid/data-row so updateAtom3Row can find and re-render it
+// directly, data-subnet so it can restate the same target subnet number on
+// every re-render without it being re-passed in from the click handler,
+// and the "atom3-bit-row" class + data-bits/id contract every other Atom 3
+// helper (collectAtom3Answer, applyAtom3ItemFeedback, syncAtom3ViewDOM, the
+// click handler in attachAtom3Handlers) already relies on — only the
+// visual language inside it changed here, not that contract.
 function renderAtom3SubnetIndexViz(qid, rowPos, bitsArr, subnetNum) {
-    const groupWidthPx = bitsArr.length * 20 + 2;
-    return '<div class="octet-bits-group" style="width:' + groupWidthPx + 'px" data-qid="' + qid + '" data-row="' + rowPos + '" data-subnet="' + subnetNum + '">' +
+    // "idx-block" is the mockup's amber-bordered answer card; it also
+    // keeps the "atom3-bit-row" marker class (+ id/data-qid/data-row/
+    // data-bits) that the click handler, collectAtom3Answer,
+    // applyAtom3ItemFeedback, and syncAtom3ViewDOM all already look up by
+    // — only the visual language inside it changed, not this contract.
+    return '<div class="idx-block atom3-bit-row" id="atom3Row-' + qid + '-' + rowPos + '" data-qid="' + qid + '" data-row="' + rowPos + '" data-subnet="' + subnetNum + '" data-bits="' + bitsArr.join('') + '">' +
         renderAtom3SubnetIndexInner(qid, rowPos, bitsArr, subnetNum) +
         '</div>';
 }
@@ -2673,37 +2714,31 @@ function renderAtom3SubnetIndexViz(qid, rowPos, bitsArr, subnetNum) {
 function atom3BuildSingleOctetBits(fullBits, networkBits, borrowEnd, octetIndex) {
     const octetStart = octetIndex * 8;
     const bitsSlice = fullBits.slice(octetStart, octetStart + 8);
-    const kindsSlice = [];
-    let cellsHtml = '';
+    let weightsHtml = '';
+    let bitsHtml = '';
     for (let k = 0; k < 8; k++) {
         const gi = octetStart + k;
         let kind = 'host';
         if (gi < networkBits) kind = 'locked';
         else if (gi < borrowEnd) kind = 'borrowed';
-        kindsSlice.push(kind);
-        const isCurtainBit = gi === borrowEnd - 1 && borrowEnd > networkBits && gi < octetStart + 7;
-        cellsHtml += '<span class="u-bit ' + kind + '-bit' + (isCurtainBit ? ' curtain-before' : '') + '">' + bitsSlice[k] + '</span>';
-    }
-    let weightsHtml = '';
-    OCTET_BIT_PLACE_VALUES.forEach((w, k) => {
         const lit = bitsSlice[k] === 1;
-        const cls = lit ? ('weight-num weight-lit weight-lit-' + kindsSlice[k]) : 'weight-num weight-muted';
-        weightsHtml += '<span class="' + cls + '">' + w + '</span>';
-    });
+        const isCurtainBit = gi === borrowEnd - 1 && borrowEnd > networkBits && gi < octetStart + 7;
+        weightsHtml += '<span class="addr-weight' + (lit ? ' lit-' + kind : '') + '">' + OCTET_BIT_PLACE_VALUES[k] + '</span>';
+        bitsHtml += '<div class="addr-bit ' + kind + (isCurtainBit ? ' curtain' : '') + '">' + bitsSlice[k] + '</div>';
+    }
     const totalVal = atom1BitsToOctet(bitsSlice);
-    const dot = octetIndex < 3 ? '<span class="octet-total-dot">.</span>' : '';
-    // Explicit width required — see the matching comment on
-    // renderAtom3SubnetIndexInner/the original buildSingleOctetBits this
-    // duplicates: .octet-bits-group has container-type:inline-size, which
-    // strips its ability to size itself from its own content, so an
-    // auto/shrink-to-fit width collapses toward ~0 and makes adjacent
-    // .octet-bits-group siblings overlap instead of sitting side by side.
-    const groupWidthPx = 8 * 20 + 2;
-    return '<div class="octet-bits-group" style="width:' + groupWidthPx + 'px">' +
-        '<div class="octet-total octet-total-compact">' + totalVal + dot + '</div>' +
-        '<div class="weight-row weight-row-compact">' + weightsHtml + '</div>' +
-        '<span class="unified-octet-cell">' + cellsHtml + '</span>' +
-        '<span class="octet-viz-label">Octet ' + (octetIndex + 1) + '</span>' +
+    const dot = octetIndex < 3 ? '<span class="addr-total-dot">.</span>' : '';
+    // Flags this octet as the one straddling the classful/borrowed
+    // boundary — drives the mobile layout's amber-highlighted total box
+    // (see .addr-octet.boundary in styles.css), same convention the
+    // mockup uses for marking the "interesting octet".
+    const isBoundaryOctet = borrowEnd > octetStart && borrowEnd <= octetStart + 8 && borrowEnd > networkBits;
+
+    return '<div class="addr-octet' + (isBoundaryOctet ? ' boundary' : '') + '">' +
+        '<div class="addr-total-box">' + totalVal + dot + '</div>' +
+        '<div class="addr-weight-row">' + weightsHtml + '</div>' +
+        '<div class="addr-bits">' + bitsHtml + '</div>' +
+        '<div class="addr-octet-label">Octet ' + (octetIndex + 1) + '</div>' +
         '</div>';
 }
 
@@ -2721,7 +2756,7 @@ function atom3BuildFullAddressViz(ex, subnetBitsArr) {
     const hostBits = Math.max(0, 32 - borrowEnd);
     const prefixBits = atom1OctetsToBits(ex.octets).slice(0, networkBits);
     const fullBits = prefixBits.concat(subnetBitsArr).concat(new Array(hostBits).fill(0));
-    let out = '<div class="octet-bits-row">';
+    let out = '<div class="addr-row">';
     for (let o = 0; o < 4; o++) {
         out += atom3BuildSingleOctetBits(fullBits, networkBits, borrowEnd, o);
     }
@@ -2741,9 +2776,9 @@ function atom3BuildFullAddressViz(ex, subnetBitsArr) {
 function buildAtom3RowHtml(qid, rowPos, subnetNum, borrowedBits, ex) {
     const zeros = new Array(borrowedBits).fill(0);
     return (
-        '<div class="atom3-subnet-row">' +
+        '<div class="subnet-row" id="atom3SubnetRow-' + qid + '-' + rowPos + '" data-qid="' + qid + '" data-row="' + rowPos + '">' +
             renderAtom3SubnetIndexViz(qid, rowPos, zeros, subnetNum) +
-            '<span class="atom3-row-network" id="atom3Network-' + qid + '-' + rowPos + '">' + atom3BuildFullAddressViz(ex, zeros) + '</span>' +
+            '<div class="atom3-row-network" id="atom3Network-' + qid + '-' + rowPos + '">' + atom3BuildFullAddressViz(ex, zeros) + '</div>' +
         '</div>'
     );
 }
@@ -2846,10 +2881,11 @@ function attachAtom3MaskHandlers(qid, ex) {
 // stating the correct target on every click, without needing it re-passed
 // in from the handler.
 function updateAtom3Row(qid, rowPos, bitsArr) {
-    const group = document.querySelector('.octet-bits-group[data-qid="' + qid + '"][data-row="' + rowPos + '"]');
-    if (!group) return;
-    const subnetNum = group.dataset.subnet;
-    group.innerHTML = renderAtom3SubnetIndexInner(qid, rowPos, bitsArr, subnetNum);
+    const rowEl = document.getElementById('atom3Row-' + qid + '-' + rowPos);
+    if (!rowEl) return;
+    const subnetNum = rowEl.dataset.subnet;
+    rowEl.dataset.bits = bitsArr.join('');
+    rowEl.innerHTML = renderAtom3SubnetIndexInner(qid, rowPos, bitsArr, subnetNum);
 
     const ex = exerciseData[qid];
     const networkEl = document.getElementById('atom3Network-' + qid + '-' + rowPos);
@@ -2901,12 +2937,12 @@ function attachAtom3Handlers(qid, ex) {
         };
 
         listWrap.addEventListener('click', (e) => {
-            const cell = e.target.closest('.bit-cell');
+            const cell = e.target.closest('.idx-bit');
             if (cell) handleRowActivate(cell);
         });
         listWrap.addEventListener('keydown', (e) => {
             if (e.key !== 'Enter' && e.key !== ' ') return;
-            const cell = e.target.closest && e.target.closest('.bit-cell');
+            const cell = e.target.closest && e.target.closest('.idx-bit');
             if (!cell) return;
             e.preventDefault();
             handleRowActivate(cell);
@@ -3185,7 +3221,7 @@ function applyAtom3ItemFeedback(qid, ex) {
         maskWrap.classList.add(maskCorrect ? 'atom3-item-correct' : 'atom3-item-incorrect');
     }
 
-    document.querySelectorAll('.atom3-bit-row[data-qid="' + qid + '"]').forEach(row => {
+    document.querySelectorAll('.subnet-row[data-qid="' + qid + '"]').forEach(row => {
         const pos = parseInt(row.dataset.row, 10);
         const isCorrect = !!rowCorrectArr[pos];
         row.classList.remove('atom3-item-correct', 'atom3-item-incorrect');
