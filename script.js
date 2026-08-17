@@ -2728,13 +2728,8 @@ function atom3BuildSingleOctetBits(fullBits, networkBits, borrowEnd, octetIndex)
     }
     const totalVal = atom1BitsToOctet(bitsSlice);
     const dot = octetIndex < 3 ? '<span class="addr-total-dot">.</span>' : '';
-    // Flags this octet as the one straddling the classful/borrowed
-    // boundary — drives the mobile layout's amber-highlighted total box
-    // (see .addr-octet.boundary in styles.css), same convention the
-    // mockup uses for marking the "interesting octet".
-    const isBoundaryOctet = borrowEnd > octetStart && borrowEnd <= octetStart + 8 && borrowEnd > networkBits;
 
-    return '<div class="addr-octet' + (isBoundaryOctet ? ' boundary' : '') + '">' +
+    return '<div class="addr-octet">' +
         '<div class="addr-total-box">' + totalVal + dot + '</div>' +
         '<div class="addr-weight-row">' + weightsHtml + '</div>' +
         '<div class="addr-bits">' + bitsHtml + '</div>' +

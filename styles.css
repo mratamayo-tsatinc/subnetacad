@@ -4583,11 +4583,6 @@ button:focus-visible, input:focus-visible {
     border-radius: 0 9px 9px 0;
   }
   .addr-total-dot { display: none; }
-  .addr-octet.boundary .addr-total-box {
-    background: rgba(245, 158, 11, 0.12);
-    border-left-color: var(--borrowed);
-    color: #fcd34d;
-  }
   .addr-octet-label { font-size: 0.58rem; }
 }
 
