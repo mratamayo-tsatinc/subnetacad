@@ -3274,23 +3274,6 @@ body.exam-mode .bit-place-value {
   text-align: center;
 }
 
-.inspect-btn {
-  background: var(--bg-surface-2);
-  border: 1px solid var(--locked);
-  color: #93c5fd;
-  width: 30px;
-  height: 30px;
-  padding: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: var(--radius-sm);
-  font-size: 0.85rem;
-  cursor: pointer;
-}
-.inspect-btn:hover { background: var(--locked-soft); }
-.inspect-btn.is-active { background: var(--locked); color: #0b1220; font-weight: 700; }
-
 .expansion-row td {
   text-align: center;
   padding: 10px;
@@ -3359,6 +3342,124 @@ td .deriv-label {
 }
 .nowrap-cell {
   white-space: nowrap;
+}
+
+/* Panel 4 uses Atom 3's subnet-row language for a derived, read-only view.
+  The complete subnet row is the selection surface. */
+.panel4-subnet-table-row > td {
+  padding: 0;
+  border-bottom: none;
+}
+.panel4-subnet-table-row.active-row > td {
+  background: transparent;
+}
+.panel4-subnet-row {
+  grid-template-columns: minmax(180px, 260px) minmax(0, 1fr);
+  align-items: center;
+  margin-bottom: 10px;
+  cursor: pointer;
+  container-type: inline-size;
+  transition: border-color 0.15s, background 0.15s;
+}
+.panel4-subnet-row:hover,
+.panel4-subnet-row:focus-visible {
+  border-color: var(--borrowed);
+  outline: none;
+}
+.panel4-subnet-table-row.active-row .panel4-subnet-row {
+  border-color: var(--borrowed);
+  background: rgba(245, 158, 11, 0.08);
+}
+.panel4-subnet-row.panel4-selected {
+  border-color: var(--borrowed);
+  background: rgba(245, 158, 11, 0.14);
+  box-shadow: inset 5px 0 0 var(--borrowed), 0 0 0 1px rgba(245, 158, 11, 0.3);
+}
+.panel4-selected .panel4-index-block {
+  border-color: #fcd34d;
+  box-shadow: 0 0 0 1px rgba(252, 211, 77, 0.25);
+}
+.panel4-selected .panel4-address-heading,
+.panel4-selected .idx-hint {
+  color: #fcd34d;
+}
+.panel4-index-block {
+  min-width: 0;
+  height: 100%;
+  box-sizing: border-box;
+}
+.panel4-index-bits {
+  gap: 8px;
+  width: 100%;
+}
+.panel4-index-bits .bit-row-inner {
+  gap: 6px;
+}
+.panel4-index-bits .bit-col {
+  min-width: 26px;
+}
+.panel4-index-bit {
+  width: auto;
+  min-width: 26px;
+  height: 30px;
+  aspect-ratio: 0.85;
+  cursor: default;
+  pointer-events: none;
+}
+.panel4-index-bit.on {
+  background: rgba(245, 158, 11, 0.34);
+  color: #fcd34d;
+}
+.panel4-index-decimal {
+  display: flex;
+  min-height: 54px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  border-radius: 5px;
+  color: #fcd34d;
+  font-family: var(--font-mono);
+  font-size: 1.5rem;
+  font-weight: 800;
+  background: rgba(245, 158, 11, 0.12);
+}
+.panel4-address-block {
+  min-width: 0;
+  container-type: inline-size;
+}
+.panel4-address-heading {
+  margin-bottom: 8px;
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.panel4-address-decimal {
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: clamp(1rem, 2vw, 1.4rem);
+  font-weight: 700;
+}
+@media (max-width: 720px) {
+  .panel4-subnet-row {
+    grid-template-columns: minmax(150px, 1fr);
+  }
+  .panel4-address-block {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 480px) {
+  .panel4-subnet-row {
+    grid-template-columns: 1fr auto;
+  }
+  .panel4-index-block {
+    grid-column: 1 / -1;
+  }
+  .panel4-address-block {
+    grid-column: 1 / -1;
+  }
 }
 
 /* Unified octet cell */
@@ -4461,24 +4562,52 @@ button:focus-visible, input:focus-visible {
   display: grid;
   grid-template-columns: minmax(200px, max-content) minmax(0, 1fr);
   align-items: start;
-  column-gap: clamp(16px, 2.4cqi, 34px);
-  row-gap: 12px;
+  column-gap: 0;
+  row-gap: 0;
   background: var(--bg-surface-2);
   border: 1px solid var(--border-soft);
   border-radius: 10px;
-  padding: clamp(12px, 1.6cqi, 20px) clamp(14px, 1.8cqi, 22px) clamp(14px, 1.8cqi, 20px);
+  padding: 0;
   margin-bottom: 12px;
 }
+.subnet-row.atom4-subnet-row {
+  align-items: stretch;
+  column-gap: 12px;
+}
+.atom4-subnet-row > .idx-block {
+  height: 100%;
+  box-sizing: border-box;
+}
+.atom4-row-boundaries {
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 12px 12px 12px 0;
+}
 @container (max-width: 480px) {
-  .subnet-row { grid-template-columns: 1fr; }
+  .subnet-row {
+    grid-template-columns: 1fr;
+    border-radius: 0;
+    overflow: hidden;
+  }
+  .subnet-row > .idx-block {
+    border-right: 0;
+    border-bottom: 2px solid var(--borrowed);
+  }
+  .subnet-row.atom4-subnet-row {
+    column-gap: 0;
+  }
+  .atom4-row-boundaries {
+    padding: 0;
+  }
 }
 
 /* ---------- Subnet Index answer block ---------- */
 .idx-block {
-  border: 1px solid var(--borrowed);
+  border: 0;
+  border-right: 2px solid var(--borrowed);
   background: rgba(245, 158, 11, 0.05);
-  border-radius: 10px;
-  padding: clamp(10px, 1.3cqi, 16px) clamp(12px, 1.5cqi, 18px) clamp(12px, 1.5cqi, 16px);
+  border-radius: 0;
+  padding: clamp(10px, 1.1cqi, 14px) clamp(10px, 1.3cqi, 16px);
 }
 .idx-pill-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
 .idx-pill-label { font-size: clamp(0.6rem, 1cqi, 0.75rem); font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #fcd34d; white-space: nowrap; }
@@ -4593,8 +4722,181 @@ button:focus-visible, input:focus-visible {
   display: block;
   justify-self: stretch;
   width: 100%;
+  padding: clamp(10px, 1.1cqi, 14px) clamp(12px, 1.5cqi, 18px);
+  box-sizing: border-box;
 }
-.atom3-row-network .addr-row {
+.atom3-row-network .addr-row,
+.panel4-address-block .addr-row {
+  gap: clamp(14px, 2cqi, 28px);
   flex-wrap: wrap;
-  row-gap: 12px;
+  row-gap: 0;
+}
+
+@container (max-width: 480px) {
+  .atom3-row-network .addr-row,
+  .panel4-address-block .addr-row {
+    gap: 0;
+    width: 100%;
+  }
+  .atom3-row-network,
+  .panel4-address-block {
+    padding: 0;
+  }
+  .atom3-row-network .addr-row .addr-octet,
+  .panel4-address-block .addr-row .addr-octet {
+    border: 0;
+    border-left: 1px solid var(--border-soft);
+    border-right: 1px solid var(--border-soft);
+    border-top: 2px dotted var(--border-soft);
+    border-radius: 0;
+  }
+  .atom3-row-network .addr-row .addr-octet:first-child,
+  .panel4-address-block .addr-row .addr-octet:first-child {
+    border-top: 1px solid var(--border-soft);
+    border-radius: 10px 10px 0 0;
+  }
+  .atom3-row-network .addr-row .addr-octet:last-child,
+  .panel4-address-block .addr-row .addr-octet:last-child {
+    border-bottom: 1px solid var(--border-soft);
+    border-radius: 0 0 10px 10px;
+  }
+  .atom3-row-network .addr-row .addr-octet,
+  .panel4-address-block .addr-row .addr-octet,
+  .atom3-row-network .addr-row .addr-octet:first-child,
+  .panel4-address-block .addr-row .addr-octet:first-child,
+  .atom3-row-network .addr-row .addr-octet:last-child,
+  .panel4-address-block .addr-row .addr-octet:last-child {
+    border-radius: 0;
+  }
+  .atom3-row-network .addr-row .addr-total-box,
+  .panel4-address-block .addr-row .addr-total-box {
+    align-self: stretch;
+    height: auto;
+    margin: -8px 0;
+    padding: 8px 0;
+    box-sizing: border-box;
+    border-radius: 0;
+  }
+  .atom3-row-network .addr-row .addr-bits,
+  .panel4-address-block .addr-row .addr-bits {
+    border-radius: 0;
+  }
+  .atom3-row-network .addr-row .addr-octet:first-child .addr-total-box,
+  .panel4-address-block .addr-row .addr-octet:first-child .addr-total-box {
+    border-radius: 0 9px 0 0;
+  }
+  .atom3-row-network .addr-row .addr-octet:last-child .addr-total-box,
+  .panel4-address-block .addr-row .addr-octet:last-child .addr-total-box {
+    border-radius: 0 0 9px 0;
+  }
+}
+
+  /* ---------- Atom 4: subnet boundaries ---------- */
+  .atom4-q-panel {
+    --atom4-border: rgba(148, 163, 184, 0.28);
+  }
+  .atom4-target {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    margin: 1rem 0;
+    color: var(--text-secondary);
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .atom4-target strong {
+    color: var(--borrowed);
+    font-family: var(--font-mono);
+    font-size: 1.1rem;
+    letter-spacing: 0;
+  }
+  .atom4-boundaries {
+    display: grid;
+    gap: 12px;
+    margin-top: 1.25rem;
+  }
+  .atom4-boundary-row {
+    overflow: hidden;
+    border: 1px solid var(--atom4-border);
+    border-radius: var(--radius-sm);
+    background: var(--bg-surface-2);
+  }
+  .atom4-boundary-label {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--atom4-border);
+    background: rgba(148, 163, 184, 0.06);
+  }
+  .atom4-boundary-label strong {
+    color: var(--text-primary);
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .atom4-boundary-label span {
+    color: var(--text-dim);
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+  }
+  .atom4-host-bit {
+    cursor: pointer;
+    user-select: none;
+    transition: background 0.12s, color 0.12s;
+  }
+  .atom4-host-bit:hover,
+  .atom4-host-bit:focus-visible { background: rgba(245, 158, 11, 0.22); color: #fcd34d; outline: none; }
+  .atom4-host-bit.atom4-locked { pointer-events: none; opacity: 0.68; }
+  .atom4-correct { border-color: var(--success); }
+  .atom4-incorrect { border-color: var(--error); }
+  .atom4-actions { margin-top: 14px; }
+
+  @media (max-width: 480px) {
+    .atom4-boundary-label { align-items: flex-start; flex-direction: column; gap: 3px; }
+  }
+
+/* Mobile subnet rows are edge-to-edge compositions, so no nested subnet or
+   octet surface needs its own rounded corners. Keep this viewport fallback
+   explicit for Panel 4, whose available width is table-driven. */
+@media (max-width: 480px) {
+  .atom3-subnet-group .subnet-row,
+  .panel4-subnet-row,
+  .atom3-subnet-group .idx-block,
+  .panel4-index-block,
+  .atom3-subnet-group .addr-octet,
+  .panel4-address-block .addr-octet,
+  .atom3-subnet-group .addr-bits,
+  .panel4-address-block .addr-bits,
+  .atom3-subnet-group .addr-total-box,
+  .panel4-address-block .addr-total-box {
+    border-radius: 0;
+  }
+
+  .atom3-row-network .addr-row .addr-octet,
+  .panel4-address-block .addr-row .addr-octet {
+    border: 0;
+  }
+  .atom3-row-network .addr-row .addr-octet + .addr-octet,
+  .panel4-address-block .addr-row .addr-octet + .addr-octet {
+    border-top: 2px dotted var(--border-soft);
+  }
+  .atom3-row-network .addr-row .addr-octet,
+  .atom3-row-network .addr-row .addr-octet:first-child,
+  .atom3-row-network .addr-row .addr-octet:last-child,
+  .panel4-address-block .addr-row .addr-octet,
+  .panel4-address-block .addr-row .addr-octet:first-child,
+  .panel4-address-block .addr-row .addr-octet:last-child {
+    border-radius: 0;
+  }
+  .atom3-row-network .addr-row .addr-total-box,
+  .atom3-row-network .addr-row .addr-octet:first-child .addr-total-box,
+  .atom3-row-network .addr-row .addr-octet:last-child .addr-total-box,
+  .panel4-address-block .addr-row .addr-total-box,
+  .panel4-address-block .addr-row .addr-octet:first-child .addr-total-box,
+  .panel4-address-block .addr-row .addr-octet:last-child .addr-total-box {
+    border-radius: 0;
+  }
 }

@@ -86,6 +86,14 @@ const QUESTION_CONFIG = {
         numQuestions: 6
     },
 
+    // Atom 4: The Boundaries — given one subnet ID, fill the remaining
+    // host bits twice: all zeroes for the network ID and all ones for the
+    // broadcast address. Host cells cycle ?, 0, 1, ? when clicked.
+    atom4: {
+        enabled: true,
+        numQuestions: 6
+    },
+
     // Grading
     strictLeadingZeros: true // binary answers must match bit-width exactly
 };
@@ -697,6 +705,7 @@ function questionTypeLabel(type) {
         case 'atom1': return 'Bit Question';
         case 'atom2': return 'Mask Assembly';
         case 'atom3': return 'Space Map';
+        case 'atom4': return 'Boundaries';
         default: return '';
     }
 }
@@ -904,6 +913,20 @@ function pickAtom3ClassRange(rng) {
     return ATOM3_CLASS_WEIGHTS[ATOM3_CLASS_WEIGHTS.length - 1].range;
 }
 
+// Atom 4 is deliberately sequenced instead of randomly weighted: its
+// boundary task is more demanding than Atom 3's, so practice should teach
+// the pattern with mostly Class C questions, then introduce Class B, and
+// finish with at most one Class A question.
+function atom4ClassRangeForQuestion(index, totalQuestions) {
+    const classACount = totalQuestions > 0 ? 1 : 0;
+    const nonClassACount = Math.max(0, totalQuestions - classACount);
+    const classCCount = Math.max(1, Math.ceil(nonClassACount * 0.7));
+
+    if (index < classCCount) return CLASSFUL_CIDR_RANGES[2];
+    if (index < nonClassACount) return CLASSFUL_CIDR_RANGES[1];
+    return CLASSFUL_CIDR_RANGES[0];
+}
+
 function genAtom3Questions(cfg, rng) {
     if (!cfg || !cfg.enabled || !cfg.numQuestions) return [];
     const out = [];
@@ -944,6 +967,41 @@ function genAtom3Questions(cfg, rng) {
     return out;
 }
 
+function genAtom4Questions(cfg, rng) {
+    if (!cfg || !cfg.enabled || !cfg.numQuestions) return [];
+    const out = [];
+    const maxBorrowCap = 10;
+
+    for (let i = 0; i < cfg.numQuestions; i++) {
+        const range = atom4ClassRangeForQuestion(i, cfg.numQuestions);
+        const networkBits = range.cidr;
+        const editableCount = networkBits / 8;
+        const octets = [0, 0, 0, 0];
+        octets[0] = randInt(rng, range.min, range.max);
+        for (let o = 1; o < editableCount; o++) octets[o] = randInt(rng, 0, 255);
+
+        const maxBorrow = Math.max(0, 30 - networkBits);
+        const borrowedBits = randInt(rng, 3, Math.max(3, Math.min(maxBorrow, maxBorrowCap)));
+        const targetCidr = networkBits + borrowedBits;
+        const ipStr = octets.join('.');
+
+        out.push({
+            type: 'atom4',
+            octets,
+            classLabel: range.cls,
+            networkBits,
+            maxBorrow,
+            borrowedBits,
+            hostBits: 32 - targetCidr,
+            targetCidr,
+            promptHtml: `For the <b>${ipStr}/${targetCidr}</b> network, build each subnet ID listed below. Then set every remaining host bit to <b>0</b> for its Network ID and to <b>1</b> for its Broadcast Address.`,
+            correct: '',
+            given: ipStr
+        });
+    }
+    return out;
+}
+
 // Separate question list for Atom 3's own dedicated view — same rationale
 // as buildAtom1QuestionList/buildAtom2QuestionList, drawn from its own
 // independent RNG stream (seed suffixed with '::atom3').
@@ -954,6 +1012,18 @@ function buildAtom3QuestionList(seedStr) {
         name: `atom3-q${i + 1}`,
         phase: 'Atom 3 · The Space Map (Front & Back Subnets)',
         label: `Atom 3 – Q${i + 1} (${questionTypeLabel(q.type)})`,
+        shortLabel: `Q${i + 1} · ${questionTypeLabel(q.type)}`,
+        q
+    }));
+}
+
+function buildAtom4QuestionList(seedStr) {
+    const rng = mulberry32(hashStringToSeed((seedStr || '') + '::atom4'));
+    const atom4Questions = genAtom4Questions(QUESTION_CONFIG.atom4, rng);
+    return atom4Questions.map((q, i) => ({
+        name: `atom4-q${i + 1}`,
+        phase: 'Atom 4 · The Boundaries (Network ID & Broadcast)',
+        label: `Atom 4 – Q${i + 1} (${questionTypeLabel(q.type)})`,
         shortLabel: `Q${i + 1} · ${questionTypeLabel(q.type)}`,
         q
     }));
@@ -1063,6 +1133,13 @@ async function loadAllExercises() {
     });
     renderAtom3View(atom3List);
 
+    // --- Atom 4: scored, dedicated boundary view ---
+    const atom4List = buildAtom4QuestionList(seedStr);
+    atom4List.forEach(item => {
+        exerciseData[item.name] = buildConversionExerciseData(item);
+    });
+    renderAtom4View(atom4List);
+
     document.getElementById('loader').style.display = 'none';
 
     // --- Restore any persisted exam-mode progress for this student ---
@@ -1096,6 +1173,7 @@ async function loadAllExercises() {
     syncAtom1ViewDOM();
     syncAtom2ViewDOM();
     syncAtom3ViewDOM();
+    syncAtom4ViewDOM();
 
     const firstQuestionItem = list.querySelector('li:not(.sidebar-phase-header)');
     if (firstQuestionItem) firstQuestionItem.click();
@@ -1360,11 +1438,24 @@ function buildConversionExerciseData(item) {
         targetCidr: q.targetCidr,
         correctBits: q.correctBits
     } : {};
+    const atom4AnswerCount = q.type === 'atom4' ? (2 + atom3SubnetIndicesForBorrowed(q.correctBits).length + 2) : null;
+    const atom4Extra = q.type === 'atom4' ? {
+        octets: q.octets,
+        classLabel: q.classLabel,
+        networkBits: q.networkBits,
+        maxBorrow: q.maxBorrow,
+        correctBits: q.borrowedBits,
+        borrowedBits: q.borrowedBits,
+        hostBits: q.hostBits,
+        targetCidr: q.targetCidr,
+        // Atom 4 subnet IDs are entered per displayed row, just like Atom 3;
+        // there is no single target subnet or fixed subnet-bit pattern.
+    } : {};
     return Object.assign({
         html: renderQuestionHtml(item.name, q),
         answers: isOctetScored
             ? [[], [], [], []]
-            : (q.type === 'atom3' ? Array.from({ length: atom3AnswerCount }, () => []) : [[q.correct]]), // length drives the score denominator everywhere (sidebar, summary, exam completion)
+            : (q.type === 'atom3' ? Array.from({ length: atom3AnswerCount }, () => []) : (q.type === 'atom4' ? Array.from({ length: atom4AnswerCount }, () => []) : [[q.correct]])), // length drives the score denominator everywhere (sidebar, summary, exam completion)
         correct: q.correct,
         type: q.type,
         bitWidth: q.bitWidth,
@@ -1380,7 +1471,7 @@ function buildConversionExerciseData(item) {
         isPartial: false,
         isConversionQuestion: true,
         isLineOrdering: false
-    }, atom1Extra, atom2Extra, atom3Extra);
+    }, atom1Extra, atom2Extra, atom3Extra, atom4Extra);
 }
 
 function renderBitGroup(qid, width) {
@@ -2083,6 +2174,7 @@ function showAtom1Page() {
     document.getElementById('atomPlaceholderView').style.display = 'none';
     document.getElementById('atom2View').style.display = 'none';
     document.getElementById('atom3View').style.display = 'none';
+    document.getElementById('atom4View').style.display = 'none';
     document.getElementById('atom1View').style.display = 'flex';
     document.getElementById('timerContainer').style.display = timerIntervalId ? 'flex' : 'none';
 
@@ -2530,6 +2622,7 @@ function showAtom2Page() {
     document.getElementById('atom2View').style.display = 'flex';
     document.getElementById('atom3View').style.display = 'none';
     document.getElementById('timerContainer').style.display = timerIntervalId ? 'flex' : 'none';
+    document.getElementById('atom4View').style.display = 'none';
 
     currentFile = ''; // no single graded exercise is "current" on this page
 
@@ -2623,10 +2716,13 @@ function atom3SubnetIndicesForBorrowed(borrowedBits) {
 // the mockups scale cleanly from 1 up to 16 bits. Bit indices in data-idx
 // stay GLOBAL (position within the full pattern, not per-row), so nothing
 // downstream (updateAtom3Row's click handler, grading) needs to change.
-function renderAtom3SubnetIndexInner(qid, rowPos, bitsArr, subnetNum) {
+function buildSubnetIndexInner(bitsArr, options) {
+    const config = options || {};
     const n = bitsArr.length;
     const total = n ? parseInt(bitsArr.join(''), 2) : 0;
     const rowsCount = Math.max(1, Math.ceil(n / 8));
+    const interactive = config.interactive !== false;
+    const bitClass = config.bitClass ? ' ' + config.bitClass : '';
 
     let rowsHtml = '<div class="bit-rows">';
     for (let r = 0; r < rowsCount; r++) {
@@ -2645,11 +2741,12 @@ function renderAtom3SubnetIndexInner(qid, rowPos, bitsArr, subnetNum) {
         chunk.forEach((v, i) => {
             const globalIdx = start + i;
             const weight = Math.pow(2, startPow - i);
+            const bitAttrs = interactive
+                ? ' role="button" tabindex="0" data-idx="' + globalIdx + '" aria-label="Bit worth ' + weight + ', currently ' + v + '"'
+                : ' aria-hidden="true"';
             inner += '<div class="bit-col">' +
                         '<span class="bit-weight' + (v === 1 ? ' active' : '') + '">' + weight + '</span>' +
-                        '<div class="idx-bit' + (v === 1 ? ' on' : '') + '" role="button" tabindex="0" ' +
-                          'data-idx="' + globalIdx + '" ' +
-                          'aria-label="Bit worth ' + weight + ', currently ' + v + '">' + v + '</div>' +
+                        '<div class="idx-bit' + bitClass + (v === 1 ? ' on' : '') + '"' + bitAttrs + '>' + v + '</div>' +
                       '</div>';
         });
         inner += '</div>';
@@ -2658,22 +2755,31 @@ function renderAtom3SubnetIndexInner(qid, rowPos, bitsArr, subnetNum) {
     }
     rowsHtml += '</div>';
 
-    // The target subnet number itself is answer-relevant, so it's only
-    // stated outright in Practice Mode (as both a caption and a tooltip on
-    // the pill row) — Exam Mode gets a generic caption instead.
-    const pillTitleAttr = (appSettings.mode === 'practice')
-        ? ' title="This row builds Subnet ' + subnetNum + '"'
+    const pillTitleAttr = config.pillTitle ? ' title="' + config.pillTitle + '"' : '';
+    const hint = config.hint || (interactive ? '&middot; tap bits to answer' : '&middot; read-only');
+    const badgeHtml = config.badgeHtml || '<span class="idx-pill-badge">' + total + '</span>';
+    const footerHtml = config.footerHtml || '<div class="idx-viz-label">Subnet Index</div>';
+
+    return '<div class="idx-pill-row"' + pillTitleAttr + '>' +
+                '<span class="idx-pill-label">Subnet Index <span class="idx-hint">' + hint + '</span></span>' +
+                badgeHtml +
+            '</div>' +
+            rowsHtml +
+            footerHtml;
+}
+
+function renderAtom3SubnetIndexInner(qid, rowPos, bitsArr, subnetNum) {
+    const pillTitle = (appSettings.mode === 'practice')
+        ? 'This row builds Subnet ' + subnetNum
         : '';
-    const targetLabelHtml = (appSettings.mode === 'practice')
+    const footerHtml = (appSettings.mode === 'practice')
         ? '<div class="idx-viz-label">Target: Subnet ' + subnetNum + '</div>'
         : '<div class="idx-viz-label">Subnet Index</div>';
 
-    return '<div class="idx-pill-row"' + pillTitleAttr + '>' +
-                '<span class="idx-pill-label">Subnet Index <span class="idx-hint">&middot; tap bits to answer</span></span>' +
-                '<span class="idx-pill-badge">' + total + '</span>' +
-            '</div>' +
-            rowsHtml +
-            targetLabelHtml;
+    return buildSubnetIndexInner(bitsArr, {
+        pillTitle,
+        footerHtml
+    });
 }
 
 // Wraps renderAtom3SubnetIndexInner in the "idx-block" answer-card markup
@@ -2770,6 +2876,19 @@ function atom3BuildFullAddressViz(ex, subnetBitsArr) {
 // reveals the target, they only mirror back the current attempt.
 function buildAtom3RowHtml(qid, rowPos, subnetNum, borrowedBits, ex) {
     const zeros = new Array(borrowedBits).fill(0);
+    if (ex.type === 'atom4') {
+        const subnetBits = zeros.join('');
+        const hostBits = atom4DefaultBits(ex);
+        return (
+            '<div class="subnet-row atom4-subnet-row" id="atom3SubnetRow-' + qid + '-' + rowPos + '" data-qid="' + qid + '" data-row="' + rowPos + '">' +
+                renderAtom3SubnetIndexViz(qid, rowPos, zeros, subnetNum) +
+                '<div class="atom4-row-boundaries" id="atom4RowBoundaries-' + qid + '-' + rowPos + '">' +
+                    buildAtom4BoundaryHtml(qid, ex, 'network', hostBits, subnetBits, rowPos) +
+                    buildAtom4BoundaryHtml(qid, ex, 'broadcast', hostBits, subnetBits, rowPos) +
+                '</div>' +
+            '</div>'
+        );
+    }
     return (
         '<div class="subnet-row" id="atom3SubnetRow-' + qid + '-' + rowPos + '" data-qid="' + qid + '" data-row="' + rowPos + '">' +
             renderAtom3SubnetIndexViz(qid, rowPos, zeros, subnetNum) +
@@ -2885,6 +3004,17 @@ function updateAtom3Row(qid, rowPos, bitsArr) {
     const ex = exerciseData[qid];
     const networkEl = document.getElementById('atom3Network-' + qid + '-' + rowPos);
     if (networkEl && ex) networkEl.innerHTML = atom3BuildFullAddressViz(ex, bitsArr);
+    if (ex && ex.type === 'atom4') {
+        const getHostBits = boundary => Array.from(document.querySelectorAll('.atom4-host-bit[data-qid="' + qid + '"][data-boundary="' + boundary + '"][data-row="' + rowPos + '"]'))
+            .sort((a, b) => parseInt(a.dataset.index, 10) - parseInt(b.dataset.index, 10))
+            .map(cell => cell.textContent).join('');
+        const hostFallback = atom4DefaultBits(ex);
+        const boundaries = document.getElementById('atom4RowBoundaries-' + qid + '-' + rowPos);
+        if (boundaries) {
+            boundaries.innerHTML = buildAtom4BoundaryHtml(qid, ex, 'network', getHostBits('network') || hostFallback, bitsArr.join(''), rowPos) +
+                buildAtom4BoundaryHtml(qid, ex, 'broadcast', getHostBits('broadcast') || hostFallback, bitsArr.join(''), rowPos);
+        }
+    }
 }
 
 // Delegated click/keyboard handling for one question: the 32-bit grid
@@ -3024,6 +3154,7 @@ function saveAtom3Progress(qid) {
 // Guards against attaching the delegated verify/reset click listener more
 // than once, same rationale as atom1ActionsDelegated/atom2ActionsDelegated.
 let atom3ActionsDelegated = false;
+let atom4ActionsDelegated = false;
 
 function buildAtom3PanelHtml(qid, ex, index) {
     const inputBits = atom1OctetsToBits(ex.octets);
@@ -3392,6 +3523,306 @@ function syncAtom3ViewDOM() {
     updateAtom3NavScore();
 }
 
+function atom4DefaultBits(ex) {
+    return '?'.repeat(ex.hostBits);
+}
+
+function atom4BitsFromAnswer(value, ex) {
+    return typeof value === 'string' && value.length === ex.hostBits && /^[?01]+$/.test(value)
+        ? value
+        : atom4DefaultBits(ex);
+}
+
+function atom4PrefixBits(ex, subnetBits) {
+    return atom1OctetsToBits(ex.octets).slice(0, ex.networkBits).join('') + (subnetBits || '');
+}
+
+function buildAtom4BoundaryHtml(qid, ex, boundary, hostBits, subnetBits, rowPos) {
+    const prefix = atom4PrefixBits(ex, subnetBits);
+    const hostCount = Math.max(0, 32 - prefix.length);
+    const normalizedHostBits = atom4BitsFromAnswer(hostBits, { hostBits: hostCount });
+    let addressHtml = '<div class="addr-row">';
+    for (let octet = 0; octet < 4; octet++) {
+        const start = octet * 8;
+        let bitsHtml = '';
+        let weightsHtml = '';
+        const octetValues = [];
+        for (let bit = 0; bit < 8; bit++) {
+            const globalIndex = start + bit;
+            const fixed = globalIndex < prefix.length;
+            const kind = fixed
+                ? (globalIndex < ex.networkBits ? 'locked' : 'borrowed')
+                : 'host';
+            const value = fixed ? prefix[globalIndex] : normalizedHostBits[globalIndex - prefix.length];
+            octetValues.push(value);
+            weightsHtml += '<span class="addr-weight ' + (value === '1' ? 'lit-' + kind : '') + '">' + OCTET_BIT_PLACE_VALUES[bit] + '</span>';
+            bitsHtml += '<div class="addr-bit ' + kind + (fixed ? '' : ' atom4-host-bit') + '"' +
+                (fixed ? ' aria-hidden="true"' : ' role="button" tabindex="0" data-qid="' + qid + '" data-boundary="' + boundary + '" data-row="' + (rowPos === undefined ? '' : rowPos) + '" data-index="' + (globalIndex - prefix.length) + '" aria-label="' + boundary + ' host bit ' + (globalIndex - prefix.length + 1) + ', currently ' + value + '"') + '>' + value + '</div>';
+        }
+        const octetTotal = octetValues.includes('?')
+            ? '?'
+            : atom1BitsToOctet(octetValues.map(Number));
+        addressHtml += '<div class="addr-octet">' +
+            '<div class="addr-total-box">' + octetTotal + (octet < 3 ? '<span class="addr-total-dot">.</span>' : '') + '</div>' +
+            '<div class="addr-weight-row">' + weightsHtml + '</div>' +
+            '<div class="addr-bits">' + bitsHtml + '</div>' +
+            '<div class="addr-octet-label">Octet ' + (octet + 1) + '</div>' +
+        '</div>';
+    }
+    addressHtml += '</div>';
+    return '<div class="atom4-boundary-row" data-qid="' + qid + '" data-boundary="' + boundary + '" data-row="' + (rowPos === undefined ? '' : rowPos) + '">' +
+        '<div class="atom4-boundary-label"><strong>' + (boundary === 'network' ? 'Network ID' : 'Broadcast Address') + '</strong><span>' + (boundary === 'network' ? 'Host bits = 0' : 'Host bits = 1') + '</span></div>' +
+        addressHtml +
+    '</div>';
+}
+
+function collectAtom4Answer(qid) {
+    const atom3Answer = collectAtom3Answer(qid);
+    const rowPositions = Array.from(document.querySelectorAll('.atom4-boundary-row[data-qid="' + qid + '"]'))
+        .map(row => parseInt(row.dataset.row, 10))
+        .filter((row, index, rows) => !isNaN(row) && rows.indexOf(row) === index)
+        .sort((a, b) => a - b);
+    const getBits = (boundary, rowPos) => Array.from(document.querySelectorAll('.atom4-host-bit[data-qid="' + qid + '"][data-boundary="' + boundary + '"][data-row="' + rowPos + '"]'))
+        .sort((a, b) => parseInt(a.dataset.index, 10) - parseInt(b.dataset.index, 10))
+        .map(cell => cell.textContent).join('');
+    return atom3Answer + '::' + rowPositions.map(row => getBits('network', row)).join(',') + '::' + rowPositions.map(row => getBits('broadcast', row)).join(',');
+}
+
+function gradeAtom4Answer(ex, answer) {
+    const parts = (answer || '').split('::');
+    const atom3Result = gradeAtom3Answer(ex, parts.slice(0, 3).join('::'));
+    const networkRows = (parts[3] || '').split(',');
+    const broadcastRows = (parts[4] || '').split(',');
+    const expectedLength = ex.hostBits;
+    const targetRows = atom3SubnetIndicesForBorrowed(ex.correctBits).length;
+    // Boundary addresses are meaningful only for the correct subnet rows.
+    // Reuse Atom 3's dependency model: a wrong borrowed boundary means the
+    // displayed rows are not comparable, and a wrong subnet ID means its
+    // Network/Broadcast address is not the target address for that row.
+    const networkCorrectArr = new Array(targetRows).fill(false);
+    const broadcastCorrectArr = new Array(targetRows).fill(false);
+    for (let i = 0; i < targetRows; i++) {
+        const rowEligible = atom3Result.boundaryCorrect && atom3Result.rowCorrectArr[i];
+        networkCorrectArr[i] = rowEligible && networkRows[i]?.length === expectedLength && networkRows[i] === '0'.repeat(expectedLength);
+        broadcastCorrectArr[i] = rowEligible && broadcastRows[i]?.length === expectedLength && broadcastRows[i] === '1'.repeat(expectedLength);
+    }
+    const networkCorrect = networkCorrectArr.length === targetRows && networkCorrectArr.every(Boolean);
+    const broadcastCorrect = broadcastCorrectArr.length === targetRows && broadcastCorrectArr.every(Boolean);
+    const networkScore = networkCorrectArr.filter(Boolean).length;
+    const broadcastScore = broadcastCorrectArr.filter(Boolean).length;
+    const score = atom3Result.score + networkScore + broadcastScore;
+    return { score, allCorrect: score === ex.answers.length, atom3Result, networkCorrect, broadcastCorrect, networkCorrectArr, broadcastCorrectArr };
+}
+
+function buildAtom4PanelHtml(qid, ex, index) {
+    const atom3Panel = buildAtom3PanelHtml(qid, ex, index)
+        .replace('Subnet ID Mapping', 'Subnet ID Mapping & Boundaries')
+        .replace('atom3-verify-btn', 'atom4-verify-btn');
+    return atom3Panel.replace('Build each subnet\'s binary ID below', 'Build each subnet\'s binary ID below, then assemble its Network and Broadcast addresses');
+}
+
+function renderAtom4View(atom4List) {
+    const container = document.getElementById('atom4QuestionsContainer');
+    if (!container) return;
+    container.innerHTML = atom4List.map((item, i) => buildAtom4PanelHtml(item.name, exerciseData[item.name], i + 1)).join('');
+    atom4List.forEach(item => {
+        attachAtom3Handlers(item.name, exerciseData[item.name]);
+        attachAtom3MaskHandlers(item.name, exerciseData[item.name]);
+    });
+    if (!atom4ActionsDelegated) {
+        atom4ActionsDelegated = true;
+        container.addEventListener('click', event => {
+            const cell = event.target.closest('.atom4-host-bit');
+            if (cell) {
+                cycleAtom4Bit(cell.dataset.qid, cell.dataset.boundary, parseInt(cell.dataset.row, 10), parseInt(cell.dataset.index, 10));
+                return;
+            }
+            const button = event.target.closest('.atom4-verify-btn');
+            if (!button) return;
+            const qid = button.dataset.qid;
+            if (exerciseData[qid]?.locked) resetAtom4Question(qid);
+            else verifyAtom4Question(qid);
+        });
+        container.addEventListener('keydown', event => {
+            if (event.key !== 'Enter' && event.key !== ' ') return;
+            const cell = event.target.closest('.atom4-host-bit');
+            if (!cell) return;
+            event.preventDefault();
+            cycleAtom4Bit(cell.dataset.qid, cell.dataset.boundary, parseInt(cell.dataset.row, 10), parseInt(cell.dataset.index, 10));
+        });
+    }
+}
+
+function refreshAtom4Boundary(qid, boundary, rowPos) {
+    const ex = exerciseData[qid];
+    if (!ex) return;
+    const hostBits = Array.from(document.querySelectorAll('.atom4-host-bit[data-qid="' + qid + '"][data-boundary="' + boundary + '"][data-row="' + rowPos + '"]'))
+        .sort((a, b) => parseInt(a.dataset.index, 10) - parseInt(b.dataset.index, 10))
+        .map(cell => cell.textContent).join('');
+    const subnetRow = document.getElementById('atom3Row-' + qid + '-' + rowPos);
+    const subnetBits = subnetRow ? (subnetRow.dataset.bits || '') : '';
+    const boundaryRow = document.querySelector('.atom4-boundary-row[data-qid="' + qid + '"][data-boundary="' + boundary + '"][data-row="' + rowPos + '"]');
+    if (boundaryRow) boundaryRow.outerHTML = buildAtom4BoundaryHtml(qid, ex, boundary, hostBits || atom4DefaultBits(ex), subnetBits, rowPos);
+}
+
+function cycleAtom4Bit(qid, boundary, rowPos, index) {
+    const ex = exerciseData[qid];
+    if (!ex || ex.locked) return;
+    const cells = Array.from(document.querySelectorAll('.atom4-host-bit[data-qid="' + qid + '"][data-boundary="' + boundary + '"][data-row="' + rowPos + '"]'))
+        .sort((a, b) => parseInt(a.dataset.index, 10) - parseInt(b.dataset.index, 10));
+    const cell = cells[index];
+    if (!cell) return;
+    cell.textContent = cell.textContent === '?' ? '0' : (cell.textContent === '0' ? '1' : '?');
+    cell.setAttribute('aria-label', boundary + ' host bit ' + (index + 1) + ', currently ' + cell.textContent);
+    refreshAtom4Boundary(qid, boundary, rowPos);
+    saveAtom4Progress(qid);
+}
+
+function saveAtom4Progress(qid) {
+    const ex = exerciseData[qid];
+    if (!ex || ex.locked) return;
+    ex.userAnswer = collectAtom4Answer(qid);
+    if (appSettings.mode === 'exam') saveExamSession();
+}
+
+function updateAtom4ButtonState(qid) {
+    const ex = exerciseData[qid];
+    const button = document.querySelector('.atom4-verify-btn[data-qid="' + qid + '"]');
+    if (!button || !ex) return;
+    button.textContent = ex.locked ? (appSettings.mode === 'practice' ? 'Reset' : 'Locked') : 'Verify Answer';
+    button.disabled = ex.locked && appSettings.mode !== 'practice';
+}
+
+function applyAtom4LockedUI(qid, ex) {
+    const result = gradeAtom4Answer(ex, ex.userAnswer);
+    applyAtom3LockedUI(qid, ex);
+    ['network', 'broadcast'].forEach(boundary => {
+        const correctRows = boundary === 'network' ? result.networkCorrectArr : result.broadcastCorrectArr;
+        document.querySelectorAll('.atom4-boundary-row[data-qid="' + qid + '"][data-boundary="' + boundary + '"]').forEach(row => {
+            const rowPos = parseInt(row.dataset.row, 10);
+            row.classList.remove('atom4-correct', 'atom4-incorrect', 'atom3-item-correct', 'atom3-item-incorrect');
+            row.classList.add(correctRows[rowPos] ? 'atom4-correct' : 'atom4-incorrect');
+            row.classList.add(correctRows[rowPos] ? 'atom3-item-correct' : 'atom3-item-incorrect');
+        });
+        document.querySelectorAll('.atom4-host-bit[data-qid="' + qid + '"][data-boundary="' + boundary + '"]').forEach(cell => cell.classList.add('atom4-locked'));
+    });
+    const feedback = document.getElementById('atom3Feedback-' + qid);
+    if (feedback && !result.allCorrect) {
+        const targetRows = result.networkCorrectArr.length;
+        const networkScore = result.networkCorrectArr.filter(Boolean).length;
+        const broadcastScore = result.broadcastCorrectArr.filter(Boolean).length;
+        feedback.textContent = result.score + '/' + ex.answers.length + ' items correct. Network: ' + networkScore + '/' + targetRows + '; Broadcast: ' + broadcastScore + '/' + targetRows + '.';
+        feedback.className = 'atom1-feedback ' + (result.score ? 'warning show' : 'error show');
+    }
+    updateAtom4ButtonState(qid);
+}
+
+function verifyAtom4Question(qid) {
+    const ex = exerciseData[qid];
+    if (!ex || ex.locked) return;
+    ex.userAnswer = collectAtom4Answer(qid);
+    const result = gradeAtom4Answer(ex, ex.userAnswer);
+    ex.score = result.score;
+    ex.isPartial = result.score > 0 && !result.allCorrect;
+    ex.locked = true;
+    applyAtom4LockedUI(qid, ex);
+    updateAtom4NavScore();
+    updateSummaryPanel();
+    if (result.allCorrect) triggerConfetti();
+    if (appSettings.mode === 'exam') saveExamSession();
+}
+
+function resetAtom4Question(qid) {
+    if (appSettings.mode === 'exam') {
+        showAlertModal('Reset Not Allowed', 'Reset is not allowed in Exam Mode.');
+        return;
+    }
+    const ex = exerciseData[qid];
+    if (!ex) return;
+    resetAtom3Question(qid);
+    ex.userAnswer = '';
+    ex.score = 0;
+    ex.isPartial = false;
+    ex.locked = false;
+    const panel = document.getElementById('atom3QPanel-' + qid);
+    if (panel) panel.classList.remove('correct', 'incorrect');
+    updateAtom4ButtonState(qid);
+    const feedback = document.getElementById('atom3Feedback-' + qid);
+    if (feedback) { feedback.textContent = ''; feedback.className = 'atom1-feedback'; }
+    document.querySelectorAll('.atom4-boundary-row[data-qid="' + qid + '"]').forEach(row => {
+        row.classList.remove('atom4-correct', 'atom4-incorrect', 'atom3-item-correct', 'atom3-item-incorrect');
+    });
+    const badge = document.getElementById('atom3ScoreBadge-' + qid);
+    if (badge) badge.textContent = '0/' + ex.answers.length;
+    updateAtom4NavScore();
+    updateSummaryPanel();
+}
+
+function updateAtom4NavScore() {
+    const scoreEl = document.getElementById('score-atom4');
+    if (!scoreEl) return;
+    let score = 0;
+    let total = 0;
+    for (const qid in exerciseData) {
+        if (!qid.startsWith('atom4-q')) continue;
+        score += Number(exerciseData[qid].score || 0);
+        total += exerciseData[qid].answers.length;
+    }
+    scoreEl.textContent = score + '/' + total;
+    scoreEl.classList.remove('completed-score', 'partial-score');
+    if (total && score === total) scoreEl.classList.add('completed-score');
+    else if (score) scoreEl.classList.add('partial-score');
+}
+
+function syncAtom4ViewDOM() {
+    for (const qid in exerciseData) {
+        if (!qid.startsWith('atom4-q')) continue;
+        const ex = exerciseData[qid];
+        const parts = typeof ex.userAnswer === 'string' ? ex.userAnswer.split('::') : [];
+        const borrowed = parseInt(parts[0], 10);
+        const safeBorrowed = isNaN(borrowed) ? 0 : Math.max(0, Math.min(borrowed, ex.maxBorrow));
+        updateAtom3Grid(qid, ex, safeBorrowed);
+        const savedMask = parts[1];
+        updateAtom3MaskGrid(qid, ex, savedMask && savedMask.length === 32 ? savedMask : initAtom2MaskBits(ex.networkBits));
+        const savedRows = parts[2] || '';
+        if (savedRows) {
+            savedRows.split(',').forEach((bits, position) => {
+                if (bits && bits.length === safeBorrowed) updateAtom3Row(qid, position, bits.split('').map(Number));
+            });
+        }
+        const networkRows = (parts[3] || '').split(',');
+        const broadcastRows = (parts[4] || '').split(',');
+        document.querySelectorAll('.atom4-boundary-row[data-qid="' + qid + '"]').forEach(row => {
+            const rowPos = parseInt(row.dataset.row, 10);
+            const subnetRow = document.getElementById('atom3Row-' + qid + '-' + rowPos);
+            const subnetBits = subnetRow ? (subnetRow.dataset.bits || '') : '';
+            const boundaries = document.getElementById('atom4RowBoundaries-' + qid + '-' + rowPos);
+            if (boundaries) {
+                boundaries.innerHTML = buildAtom4BoundaryHtml(qid, ex, 'network', atom4BitsFromAnswer(networkRows[rowPos], ex), subnetBits, rowPos) +
+                    buildAtom4BoundaryHtml(qid, ex, 'broadcast', atom4BitsFromAnswer(broadcastRows[rowPos], ex), subnetBits, rowPos);
+            }
+        });
+        if (ex.locked) applyAtom4LockedUI(qid, ex);
+        else updateAtom4ButtonState(qid);
+    }
+    updateAtom4NavScore();
+}
+
+function showAtom4Page() {
+    document.querySelectorAll('.sidebar li').forEach(li => li.classList.remove('active'));
+    document.getElementById('nav-atom4')?.classList.add('active');
+    ['exerciseArea', 'subnetVisualizerView', 'atomPlaceholderView', 'atom1View', 'atom2View', 'atom3View'].forEach(id => {
+        const view = document.getElementById(id);
+        if (view) view.style.display = 'none';
+    });
+    document.getElementById('atom4View').style.display = 'flex';
+    document.getElementById('timerContainer').style.display = timerIntervalId ? 'flex' : 'none';
+    currentFile = '';
+    closeSampleOutputModal();
+    updateConsoleDrawerTab(false);
+    closeSidebarIfMobile();
+}
+
 // --- Sidebar navigation into the Atom 3 view (Tools → Atoms → Atom 3) ---
 // Mirrors showAtom1Page/showAtom2Page exactly.
 function showAtom3Page() {
@@ -3404,6 +3835,7 @@ function showAtom3Page() {
     document.getElementById('atomPlaceholderView').style.display = 'none';
     document.getElementById('atom1View').style.display = 'none';
     document.getElementById('atom2View').style.display = 'none';
+    document.getElementById('atom4View').style.display = 'none';
     document.getElementById('atom3View').style.display = 'flex';
     document.getElementById('timerContainer').style.display = timerIntervalId ? 'flex' : 'none';
 
@@ -3423,6 +3855,8 @@ function renderQuestionHtml(qid, q) {
     if (q.type === 'atom2') return '';
     // Same rationale for Atom 3 (see renderAtom3View/buildAtom3PanelHtml).
     if (q.type === 'atom3') return '';
+    // Atom 4 reuses Atom 3's dedicated panel and adds its own boundary rows.
+    if (q.type === 'atom4') return '';
     let inputHtml = '';
     let answerRowClass = 'conversion-answer-row';
     if (q.type === 'd2b') {
@@ -4246,6 +4680,7 @@ function showSubnetVisualizer() {
     document.getElementById('atom1View').style.display = 'none';
     document.getElementById('atom2View').style.display = 'none';
     document.getElementById('atom3View').style.display = 'none';
+    document.getElementById('atom4View').style.display = 'none';
     document.getElementById('subnetVisualizerView').style.display = 'flex';
 
     currentFile = ''; // no graded exercise is "current" while the tool is open
@@ -4278,6 +4713,7 @@ function showAtomPage(atomNumber) {
     document.getElementById('atom1View').style.display = 'none';
     document.getElementById('atom2View').style.display = 'none';
     document.getElementById('atom3View').style.display = 'none';
+    document.getElementById('atom4View').style.display = 'none';
     document.getElementById('atomPlaceholderView').style.display = 'block';
     document.getElementById('atomPlaceholderTitle').textContent = `Atom ${atomNumber}`;
 
@@ -6132,24 +6568,23 @@ function renderPanel4(d) {
 
   const renderRow = (row) => {
     const tr = document.createElement('tr');
-    if (row.index === state.activeSubnetIndex) tr.classList.add('active-row');
     const isActive = row.index === state.activeSubnetIndex;
-    const subnetIndexCell = decimalMode
-      ? '<span class="octet-total octet-total-compact">' + row.index + '</span>'
-      : buildBorrowedPatternViz(row.borrowedBitsArr);
-    const octetBitsCell = decimalMode ? row.octets.join('.') : buildOctetBitsDisplay(row.fullBits, d);
-    tr.innerHTML =
-      '<td>' + (row.index + 1) + '</td>' +
-      '<td class="nowrap-cell">' + subnetIndexCell + '</td>' +
-      '<td class="nowrap-cell">' + octetBitsCell + '</td>' +
-      '<td><button class="inspect-btn' + (isActive ? ' is-active' : '') + '" data-idx="' + row.index + '" title="' +
-      (isActive ? 'Active subnet' : 'Inspect this subnet') + '" aria-label="' +
-      (isActive ? 'Active subnet' : 'Inspect this subnet') + '">' +
-      (isActive ? '<i class="fa-solid fa-circle-check"></i>' : '<i class="fa-solid fa-magnifying-glass"></i>') + '</button></td>';
-    tr.querySelector('.inspect-btn').addEventListener('click', () => {
+        tr.innerHTML = buildPanel4SubnetRow(row, d, decimalMode, isActive).replace(/^<tr[^>]*>|<\/tr>$/g, '');
+        const subnetRow = tr.querySelector('.panel4-selectable');
+        const selectRow = () => {
       state.activeSubnetIndex = row.index;
       render();
-    });
+            requestAnimationFrame(() => {
+                const panel5 = document.getElementById('panel5');
+                if (panel5) panel5.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            });
+        };
+        subnetRow.addEventListener('click', selectRow);
+        subnetRow.addEventListener('keydown', (event) => {
+            if (event.key !== 'Enter' && event.key !== ' ') return;
+            event.preventDefault();
+            selectRow();
+        });
     el.subnetTableBody.appendChild(tr);
   };
 
@@ -6206,19 +6641,53 @@ function buildSingleOctetBits(fullBits, d, octetIndex) {
     const isCurtainBit = globalIndex === d.networkBits + d.borrowedBits - 1 && d.borrowedBits > 0 && globalIndex < octetStart + 7;
     cellsHtml += '<span class="u-bit ' + kind + '-bit' + (isCurtainBit ? ' curtain-before' : '') + '">' + fullBits[globalIndex] + '</span>';
   }
-  // See buildBorrowedPatternViz for why this explicit width is required
-  // (container-size containment from container-type:inline-size otherwise
-  // collapses this box to ~0 width, causing the multi-octet overlap seen
-  // on Class A/B rows and starving the 30cqi total font-size calc).
-  const groupWidthPx = 8 * 20 + 2;
-  return '<div class="octet-bits-group" style="width:' + groupWidthPx + 'px">' +
-    buildOctetTotalHtml(bitsSlice, 'octet-total-compact', octetIndex < 3) +
-    buildWeightRowHtml(bitsSlice, 'weight-row-compact', kindsSlice) +
-    '<span class="unified-octet-cell">' + cellsHtml + '</span>' +
-    '<span class="octet-viz-label">Octet ' + (octetIndex + 1) + '</span>' +
+    const groupWidthPx = 8 * 20 + 2;
+    return '<div class="octet-bits-group" style="width:' + groupWidthPx + 'px">' +
+        buildOctetTotalHtml(bitsSlice, 'octet-total-compact', octetIndex < 3) +
+        buildWeightRowHtml(bitsSlice, 'weight-row-compact', kindsSlice) +
+        '<span class="unified-octet-cell">' + cellsHtml + '</span>' +
+        '<span class="octet-viz-label">Octet ' + (octetIndex + 1) + '</span>' +
+        '</div>';
+}
+
+function buildPanel4AddressViz(fullBits, d) {
+    const borrowEnd = d.networkBits + d.borrowedBits;
+    let out = '<div class="addr-row">';
+    for (let o = 0; o < 4; o++) {
+        out += atom3BuildSingleOctetBits(fullBits, d.networkBits, borrowEnd, o);
+    }
+    return out + '</div>';
+}
+
+function buildPanel4SubnetIndex(row, decimalMode) {
+    const indexValue = decimalMode ? row.index : parseInt(row.binaryIndex || '0', 2);
+    const indexDisplay = decimalMode
+        ? '<div class="idx-pill-row"><span class="idx-pill-label">Subnet Index <span class="idx-hint">&middot; read-only</span></span><span class="idx-pill-badge">' + indexValue + '</span></div>' +
+            '<div class="panel4-index-decimal">' + row.index + '</div>'
+        : '<div class="panel4-index-bits" aria-label="Binary subnet index ' + row.binaryIndex + '">' + buildSubnetIndexInner(row.borrowedBitsArr, {
+                interactive: false,
+                bitClass: 'panel4-index-bit',
+                hint: '&middot; read-only',
+                footerHtml: '<div class="idx-viz-label">Derived from borrowed bits</div>'
+            }) + '</div>';
+
+    return '<div class="idx-block panel4-index-block">' +
+        indexDisplay +
+        (decimalMode ? '<div class="idx-viz-label">Derived from borrowed bits</div>' : '') +
     '</div>';
 }
 
+function buildPanel4SubnetRow(row, d, decimalMode, isActive) {
+    const address = decimalMode
+        ? '<div class="panel4-address-decimal">' + row.octets.join('.') + '</div>'
+        : buildPanel4AddressViz(row.fullBits, d);
+
+    return '<tr class="panel4-subnet-table-row' + (isActive ? ' active-row' : '') + '">' +
+        '<td colspan="4"><div class="subnet-row panel4-subnet-row panel4-selectable' + (isActive ? ' panel4-selected' : '') + '" role="button" tabindex="0" aria-current="' + (isActive ? 'true' : 'false') + '" aria-label="' + (isActive ? 'Active subnet ' : 'Select subnet ') + row.index + '">' +
+            buildPanel4SubnetIndex(row, decimalMode) +
+            '<div class="atom3-row-network panel4-address-block"><div class="panel4-address-heading">Subnet ' + row.index + ' address</div>' + address + '</div>' +
+        '</div></td></tr>';
+}
 // Renders bit-level detail for all 4 octets, including any that are
 // 100% locked network bits. Showing the locked octets too (not just the
 // ones touched by borrowed/host bits) keeps the full 32-bit picture
@@ -6277,11 +6746,10 @@ function renderPanel5(d, subnetRows) {
     const hiddenCount = d.totalHosts - 8;
     const trExp = document.createElement('tr');
     trExp.className = 'expansion-row';
-    trExp.innerHTML =
-      '<td class="expansion-index" title="' + hiddenCount + ' hidden rows"><i class="fa-solid fa-ellipsis-vertical" aria-hidden="true"></i></td>' +
+        trExp.innerHTML =
       '<td colspan="2"><button class="expansion-btn" id="hostExpandBtn"><i class="fa-solid fa-eye"></i> Show ' + hiddenCount + ' Hidden Hosts</button></td>';
     el.hostTableBody.appendChild(trExp);
-    document.getElementById('hostExpandBtn').addEventListener('click', () => {
+        document.getElementById('hostExpandBtn').addEventListener('click', () => {
       state.hostsExpanded = true;
       render();
     });

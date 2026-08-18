@@ -206,9 +206,9 @@
                             <span><i class="fa-solid fa-atom" aria-hidden="true"></i> Atom 3</span>
                             <span class="nav-score" id="score-atom3">0/6</span>
                         </li>
-                        <li id="nav-atom4" onclick="showAtomPage(4)">
+                        <li id="nav-atom4" onclick="showAtom4Page()">
                             <span><i class="fa-solid fa-atom" aria-hidden="true"></i> Atom 4</span>
-                            <span class="nav-tool-tag">Ungraded</span>
+                          <span class="nav-score" id="score-atom4">0/12</span>
                         </li>
                         <li id="nav-atom5" onclick="showAtomPage(5)">
                             <span><i class="fa-solid fa-atom" aria-hidden="true"></i> Atom 5</span>
@@ -542,6 +542,17 @@
                 </div>
                 <div id="atom3QuestionsContainer" class="atom1-questions-container"></div>
             </div>
+
+              <!-- ============================================================ -->
+              <!-- ATOM 4 — scored, full-width dedicated boundary view          -->
+              <!-- ============================================================ -->
+              <div id="atom4View" class="subnetify-app atom1-app" style="display:none;">
+                <div class="card-header sv-header">
+                  <h2><i class="fa-solid fa-atom" aria-hidden="true"></i> Atom 4 · The Boundaries</h2>
+                  <p>Complete the Network ID with all host bits at 0 and the Broadcast Address with all host bits at 1. Tap each remaining bit to cycle through ?, 0, and 1.</p>
+                </div>
+                <div id="atom4QuestionsContainer" class="atom1-questions-container"></div>
+              </div>
 
             <!-- ============================================================ -->
             <!-- ATOM PAGES — placeholder views, ungraded, under Subnetify      -->
