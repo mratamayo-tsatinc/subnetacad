@@ -1646,6 +1646,67 @@ function renderClassCidrInput(qid, ip) {
    own helpers are private to its IIFE), scoped with an "atom1" prefix so
    nothing here collides with SubnetVisualizer's internals.
 ========================================================= */
+// --- ATOM 1: REQUIREMENT CARD (how the question is COMMUNICATED) ---
+// Replaces the old single narrative sentence (previously rendered via
+// q.promptHtml inside a plain .conversion-prompt div) with a compact,
+// icon-labeled card of three scannable rows: the given network, the
+// requirement itself, and the task. This only changes how the question
+// text is presented — it reads the exact same fields genAtom1Questions
+// already computes (classLabel, octets, networkBits, requirementType,
+// requiredCount), and does not touch the bit grid, the given-network
+// octet boxes in Panel 1, grading, or any other Atom's rendering.
+//
+// The given-network row deliberately keeps the IP address and its CIDR
+// suffix as one unbroken token ("202.197.98.0/24") — the notation a
+// network engineer expects — rather than splitting them apart with the
+// Class badge in between; the Class badge sits before that token instead.
+function buildAtom1RequirementCardHtml(q) {
+    const ipStr = q.octets.join('.');
+    const isHosts = q.requirementType === 'hosts';
+    const reqIconGlyph = isHosts ? 'fa-house-user' : 'fa-layer-group';
+    const reqIconExtraClass = isHosts ? ' atom1-req-icon-hosts' : '';
+    const reqNumExtraClass = isHosts ? ' atom1-req-target-num-hosts' : '';
+    const reqEyebrow = isHosts ? 'Each subnet must support at least' : 'Must support at least';
+    const reqLabel = isHosts
+        ? 'usable host' + (q.requiredCount === 1 ? '' : 's')
+        : 'subnet' + (q.requiredCount === 1 ? '' : 's');
+    const taskText = isHosts
+        ? 'Click bits in the grid below to borrow just enough network bits — leaving just enough host bits behind — then verify.'
+        : 'Click bits in the grid below to borrow exactly enough network bits, then verify.';
+
+    return (
+        '<div class="atom1-req-card">' +
+            '<div class="atom1-req-row">' +
+                '<div class="atom1-req-icon atom1-req-icon-network"><i class="fa-solid fa-diagram-project" aria-hidden="true"></i></div>' +
+                '<div class="atom1-req-body">' +
+                    '<div class="atom1-req-eyebrow">Given network</div>' +
+                    '<div class="atom1-req-main">' +
+                        '<span class="atom1-req-badge">Class ' + q.classLabel + '</span>' +
+                        '<span class="atom1-req-value">' + ipStr + '<span class="atom1-req-cidr">/' + q.networkBits + '</span></span>' +
+                    '</div>' +
+                '</div>' +
+            '</div>' +
+            '<div class="atom1-req-row">' +
+                '<div class="atom1-req-icon atom1-req-icon-requirement' + reqIconExtraClass + '"><i class="fa-solid ' + reqIconGlyph + '" aria-hidden="true"></i></div>' +
+                '<div class="atom1-req-body">' +
+                    '<div class="atom1-req-eyebrow">' + reqEyebrow + '</div>' +
+                    '<div class="atom1-req-target">' +
+                        '<span class="atom1-req-target-num' + reqNumExtraClass + '">' + q.requiredCount + '</span>' +
+                        '<span class="atom1-req-target-label">' + reqLabel + '</span>' +
+                    '</div>' +
+                '</div>' +
+            '</div>' +
+            '<div class="atom1-req-row">' +
+                '<div class="atom1-req-icon atom1-req-icon-action"><i class="fa-solid fa-hand-pointer" aria-hidden="true"></i></div>' +
+                '<div class="atom1-req-body">' +
+                    '<div class="atom1-req-eyebrow">Your task</div>' +
+                    '<div class="atom1-req-action-text">' + taskText + '</div>' +
+                '</div>' +
+            '</div>' +
+        '</div>'
+    );
+}
+
 function atom1ToBinary8(n) {
     const v = Math.max(0, Math.min(255, Number(n) || 0));
     return v.toString(2).padStart(8, '0').split('').map(Number);
@@ -1771,23 +1832,11 @@ function updateAtom1Grid(qid, ex, borrowedBits) {
 function renderAtom1QuestionHtml(qid, q) {
     const inputBits = atom1OctetsToBits(q.octets);
 
-    const octetsHtml = q.octets.map((o, i) => {
-        const dot = i < 3 ? '<span class="dot">.</span>' : '';
-        return '<div class="octet-field"><span class="octet-label">Octet ' + (i + 1) + '</span><div class="atom1-octet-value">' + o + '</div></div>' + dot;
-    }).join('');
-
-    const panel1Html =
-        '<div class="atom1-panel1">' +
-            '<div class="octet-input-row atom1-octet-row">' +
-                '<div class="octet-field class-field">' +
-                    '<span class="octet-label">Class</span>' +
-                    '<span class="class-value">' + q.classLabel + '</span>' +
-                '</div>' +
-                '<span class="row-divider" aria-hidden="true">|</span>' +
-                octetsHtml +
-                '<span class="decimal-cidr-suffix octet-row-cidr-suffix">/' + q.networkBits + '</span>' +
-            '</div>' +
-        '</div>';
+    // The given-network octet-box row (Class | Octet 1-4 | /CIDR) that used
+    // to render here was dropped: it duplicated the same address/class/CIDR
+    // already shown in the requirement card above (buildAtom1RequirementCardHtml),
+    // and the bit grid below still displays each octet's own live total, so
+    // nothing is lost by removing the redundant static row.
 
     const gridHtml =
         '<div class="atom1-bitgrid-wrap">' +
@@ -1810,8 +1859,7 @@ function renderAtom1QuestionHtml(qid, q) {
     const formulaHtml = (appSettings.mode === 'practice') ? renderAtom1FormulaBox(qid, q, 0) : '';
 
     return '<div class="conversion-question atom1-question" data-qid="' + qid + '">' +
-                '<div class="conversion-prompt">' + q.promptHtml + '</div>' +
-                panel1Html +
+                buildAtom1RequirementCardHtml(q) +
                 gridHtml +
                 formulaHtml +
             '</div>';
@@ -1851,6 +1899,176 @@ function attachAtom1Handlers(qid, ex) {
 }
 
 /* =========================================================
+   ATOM PAGINATION — shared one-question-at-a-time navigator
+   Used by Atom 1-4's dedicated views. Each view renders every question's
+   panel up front (buildAtomXPanelHtml), all sharing the ".atom1-q-panel"
+   class regardless of which Atom built them — so the panel list for any
+   given atom is just `container.querySelectorAll('.atom1-q-panel')`, in
+   DOM order, no separate id bookkeeping needed.
+
+   Only the current panel is shown (display: '') / all others hidden
+   (display: 'none') — this is real paging, not scroll-to, since a long
+   list of full-size Panel-2-style bit grids is the exact thing that makes
+   mobile scrolling painful in the first place. A bar with First/Prev/
+   [number buttons]/Next/Last renders below the questions; on narrow
+   screens the number buttons are hidden by CSS in favor of a jump <select>
+   showing "Q3 / 10" between the Prev/Next arrows.
+
+   State is keyed by atomKey ('atom1'..'atom4') so each view's current
+   page is independent and survives being re-synced (syncAtomXViewDOM)
+   without resetting to page 1 on every login-time DOM sync pass — sync
+   only touches per-question state, never calls showAtomQuestion.
+========================================================= */
+const ATOM_PAGINATION = {};
+
+function getAtomPanels(atomKey) {
+    const container = document.getElementById(atomKey + 'QuestionsContainer');
+    if (!container) return [];
+    return Array.from(container.querySelectorAll(':scope > .atom1-q-panel'));
+}
+
+// Fixed-size sliding window of page numbers, e.g. with ATOM_PAGE_WINDOW_SIZE
+// = 5 and total=12: current=1 -> [1,2,3,4,5]; current=6 -> [4,5,6,7,8];
+// current=12 -> [8,9,10,11,12]. Deliberately NOT an ellipsis-based list —
+// an ellipsis appearing/disappearing as the boundary is approached changes
+// how many items are rendered, which changes the row's width call to call.
+// A constant-length window (always exactly ATOM_PAGE_WINDOW_SIZE items, or
+// `total` itself when there are fewer questions than that) means the same
+// number of buttons renders on every page, so paired with the fixed CSS
+// width on .atom-page-numbers, the whole bar never resizes as the student
+// moves between questions.
+const ATOM_PAGE_WINDOW_SIZE = 5;
+
+function buildAtomPageWindow(total, current) {
+    if (total <= ATOM_PAGE_WINDOW_SIZE) {
+        return Array.from({ length: total }, (_, i) => i + 1);
+    }
+    let start = current - Math.floor(ATOM_PAGE_WINDOW_SIZE / 2);
+    start = Math.max(1, Math.min(start, total - ATOM_PAGE_WINDOW_SIZE + 1));
+    return Array.from({ length: ATOM_PAGE_WINDOW_SIZE }, (_, i) => start + i);
+}
+
+function buildAtomPaginationHtml(atomKey, total, currentIdx) {
+    if (total <= 1) return '';
+    const current = currentIdx + 1; // 1-based for display/comparison
+
+    const numbersHtml = buildAtomPageWindow(total, current).map(p => {
+        const isActive = p === current;
+        return '<button type="button" class="atom-page-btn' + (isActive ? ' active' : '') + '" data-atom="' + atomKey + '" data-page="' + (p - 1) + '"' +
+            (isActive ? ' aria-current="true"' : '') + ' aria-label="Go to question ' + p + '">' + p + '</button>';
+    }).join('');
+
+    let jumpOptionsHtml = '';
+    for (let i = 0; i < total; i++) {
+        jumpOptionsHtml += '<option value="' + i + '"' + (i === currentIdx ? ' selected' : '') + '>' + (i + 1) + '</option>';
+    }
+
+    const atFirst = currentIdx === 0;
+    const atLast = currentIdx === total - 1;
+
+    return (
+        '<nav class="atom-pagination" data-atom="' + atomKey + '" aria-label="Question navigation">' +
+            '<button type="button" class="atom-page-nav-btn atom-page-first" data-atom="' + atomKey + '" data-page="0"' + (atFirst ? ' disabled' : '') + ' aria-label="First question"><i class="fa-solid fa-angles-left" aria-hidden="true"></i></button>' +
+            '<button type="button" class="atom-page-nav-btn atom-page-prev" data-atom="' + atomKey + '" data-page="' + (currentIdx - 1) + '"' + (atFirst ? ' disabled' : '') + ' aria-label="Previous question"><i class="fa-solid fa-angle-left" aria-hidden="true"></i></button>' +
+            '<div class="atom-page-numbers">' + numbersHtml + '</div>' +
+            '<div class="atom-page-mobile-indicator">' +
+                '<select class="atom-page-jump-select" data-atom="' + atomKey + '" aria-label="Jump to question">' + jumpOptionsHtml + '</select>' +
+                '<span class="atom-page-mobile-total">of ' + total + '</span>' +
+            '</div>' +
+            '<button type="button" class="atom-page-nav-btn atom-page-next" data-atom="' + atomKey + '" data-page="' + (currentIdx + 1) + '"' + (atLast ? ' disabled' : '') + ' aria-label="Next question"><i class="fa-solid fa-angle-right" aria-hidden="true"></i></button>' +
+            '<button type="button" class="atom-page-nav-btn atom-page-last" data-atom="' + atomKey + '" data-page="' + (total - 1) + '"' + (atLast ? ' disabled' : '') + ' aria-label="Last question"><i class="fa-solid fa-angles-right" aria-hidden="true"></i></button>' +
+        '</nav>'
+    );
+}
+
+function renderAtomPaginationBar(atomKey) {
+    const holder = document.getElementById(atomKey + 'PaginationContainer');
+    if (!holder) return;
+    const state = ATOM_PAGINATION[atomKey];
+    const total = state ? state.total : 0;
+    const current = state ? state.current : 0;
+    holder.innerHTML = buildAtomPaginationHtml(atomKey, total, current);
+}
+
+// Shows only the panel at `index`, hides the rest, updates state + bar,
+// and scrolls the question container back into view (useful after paging
+// from a long question further down the list).
+function showAtomQuestion(atomKey, index, opts) {
+    const state = ATOM_PAGINATION[atomKey];
+    if (!state || !state.total) return;
+    const safeIndex = Math.max(0, Math.min(index, state.total - 1));
+    state.current = safeIndex;
+
+    const panels = getAtomPanels(atomKey);
+    panels.forEach((panel, i) => {
+        panel.style.display = i === safeIndex ? '' : 'none';
+    });
+
+    renderAtomPaginationBar(atomKey);
+
+    if (!opts || opts.scroll !== false) {
+        const container = document.getElementById(atomKey + 'QuestionsContainer');
+        if (container) container.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+}
+
+// Called once per login, right after a view's panels have been (re)built.
+// Resets to question 1 — each render pass is a fresh question set (new
+// login/session seed), so there's no prior page position worth preserving.
+function initAtomPagination(atomKey) {
+    const panels = getAtomPanels(atomKey);
+    ATOM_PAGINATION[atomKey] = { total: panels.length, current: 0 };
+    showAtomQuestion(atomKey, 0, { scroll: false });
+}
+
+// --- ATOM PAGINATION BAR VISIBILITY (direct children of <main>) ---
+// The four #atomXPaginationContainer bars now live as direct siblings of
+// #contentScrollArea under <main class="content"> (see index.html) rather
+// than nested inside their own atomXView — that's what makes each one a
+// real block-level boundary below the scrollable question area instead of
+// an overlay floating on top of it. Because they're no longer nested
+// inside atomXView, they no longer get hidden "for free" whenever that
+// view's own display:none is set; every place that switches the main view
+// (Exercises, Subnet Visualizer, an ungraded Atom placeholder, or another
+// Atom) must explicitly hide all four and then show at most one.
+function hideAllAtomPaginationBars() {
+    ['atom1', 'atom2', 'atom3', 'atom4'].forEach(key => {
+        const bar = document.getElementById(key + 'PaginationContainer');
+        if (bar) bar.style.display = 'none';
+    });
+}
+
+function showAtomPaginationBar(atomKey) {
+    hideAllAtomPaginationBars();
+    const bar = document.getElementById(atomKey + 'PaginationContainer');
+    if (bar) bar.style.display = 'flex';
+}
+
+let atomPaginationDelegated = false;
+function attachAtomPaginationHandlers() {
+    if (atomPaginationDelegated) return;
+    atomPaginationDelegated = true;
+
+    document.addEventListener('click', (e) => {
+        const btn = e.target.closest('.atom-page-nav-btn, .atom-page-btn');
+        if (!btn || btn.disabled) return;
+        const atomKey = btn.dataset.atom;
+        const page = parseInt(btn.dataset.page, 10);
+        if (!atomKey || isNaN(page)) return;
+        showAtomQuestion(atomKey, page);
+    });
+
+    document.addEventListener('change', (e) => {
+        const select = e.target.closest('.atom-page-jump-select');
+        if (!select) return;
+        const atomKey = select.dataset.atom;
+        const page = parseInt(select.value, 10);
+        if (!atomKey || isNaN(page)) return;
+        showAtomQuestion(atomKey, page);
+    });
+}
+
+/* =========================================================
    ATOM 1: DEDICATED FULL-WIDTH VIEW
    Renders every Atom 1 question as its own full-size .panel — the exact
    component the Subnet Visualizer itself uses — stacked on one continuous
@@ -1872,23 +2090,11 @@ let atom1ActionsDelegated = false;
 function buildAtom1PanelHtml(qid, ex, index) {
     const inputBits = atom1OctetsToBits(ex.octets);
 
-    const octetsHtml = ex.octets.map((o, i) => {
-        const dot = i < 3 ? '<span class="dot">.</span>' : '';
-        return '<div class="octet-field"><span class="octet-label">Octet ' + (i + 1) + '</span><div class="atom1-octet-value">' + o + '</div></div>' + dot;
-    }).join('');
-
-    const panel1Html =
-        '<div class="atom1-panel1">' +
-            '<div class="octet-input-row atom1-octet-row">' +
-                '<div class="octet-field class-field">' +
-                    '<span class="octet-label">Class</span>' +
-                    '<span class="class-value">' + ex.classLabel + '</span>' +
-                '</div>' +
-                '<span class="row-divider" aria-hidden="true">|</span>' +
-                octetsHtml +
-                '<span class="decimal-cidr-suffix octet-row-cidr-suffix">/' + ex.networkBits + '</span>' +
-            '</div>' +
-        '</div>';
+    // The given-network octet-box row (Class | Octet 1-4 | /CIDR) that used
+    // to render here was dropped: it duplicated the same address/class/CIDR
+    // already shown in the requirement card above (buildAtom1RequirementCardHtml),
+    // and the bit grid below still displays each octet's own live total, so
+    // nothing is lost by removing the redundant static row.
 
     const gridHtml =
         '<div class="atom1-bitgrid-wrap">' +
@@ -1917,8 +2123,7 @@ function buildAtom1PanelHtml(qid, ex, index) {
                 '<h2>' + (ex.requirementType === 'subnets' ? 'Subnet Requirement' : 'Host Requirement') + '</h2>' +
                 '<span class="badge atom1-score-badge" id="atom1ScoreBadge-' + qid + '">0/1</span>' +
             '</div>' +
-            '<div class="conversion-prompt">' + ex.promptHtml + '</div>' +
-            panel1Html +
+            buildAtom1RequirementCardHtml(ex) +
             gridHtml +
             formulaHtml +
             '<div class="atom1-actions">' +
@@ -1959,6 +2164,9 @@ function renderAtom1View(atom1List) {
             }
         });
     }
+
+    attachAtomPaginationHandlers();
+    initAtomPagination('atom1');
 }
 
 // Persists the in-progress borrowed-bit count for one Atom 1 question
@@ -2177,6 +2385,8 @@ function showAtom1Page() {
     document.getElementById('atom4View').style.display = 'none';
     document.getElementById('atom1View').style.display = 'flex';
     document.getElementById('timerContainer').style.display = timerIntervalId ? 'flex' : 'none';
+
+    showAtomPaginationBar('atom1');
 
     currentFile = ''; // no single graded exercise is "current" on this page
 
@@ -2419,6 +2629,9 @@ function renderAtom2View(atom2List) {
             }
         });
     }
+
+    attachAtomPaginationHandlers();
+    initAtomPagination('atom2');
 }
 
 // Sets the Verify/Reset/Locked button label + disabled state for one
@@ -2623,6 +2836,8 @@ function showAtom2Page() {
     document.getElementById('atom3View').style.display = 'none';
     document.getElementById('timerContainer').style.display = timerIntervalId ? 'flex' : 'none';
     document.getElementById('atom4View').style.display = 'none';
+
+    showAtomPaginationBar('atom2');
 
     currentFile = ''; // no single graded exercise is "current" on this page
 
@@ -3274,6 +3489,9 @@ function renderAtom3View(atom3List) {
             }
         });
     }
+
+    attachAtomPaginationHandlers();
+    initAtomPagination('atom3');
 }
 
 // Sets the Verify/Reset/Locked button label + disabled state for one
@@ -3651,6 +3869,9 @@ function renderAtom4View(atom4List) {
             cycleAtom4Bit(cell.dataset.qid, cell.dataset.boundary, parseInt(cell.dataset.row, 10), parseInt(cell.dataset.index, 10));
         });
     }
+
+    attachAtomPaginationHandlers();
+    initAtomPagination('atom4');
 }
 
 function refreshAtom4Boundary(qid, boundary, rowPos) {
@@ -3817,6 +4038,7 @@ function showAtom4Page() {
     });
     document.getElementById('atom4View').style.display = 'flex';
     document.getElementById('timerContainer').style.display = timerIntervalId ? 'flex' : 'none';
+    showAtomPaginationBar('atom4');
     currentFile = '';
     closeSampleOutputModal();
     updateConsoleDrawerTab(false);
@@ -3838,6 +4060,8 @@ function showAtom3Page() {
     document.getElementById('atom4View').style.display = 'none';
     document.getElementById('atom3View').style.display = 'flex';
     document.getElementById('timerContainer').style.display = timerIntervalId ? 'flex' : 'none';
+
+    showAtomPaginationBar('atom3');
 
     currentFile = ''; // no single graded exercise is "current" on this page
 
@@ -4683,6 +4907,8 @@ function showSubnetVisualizer() {
     document.getElementById('atom4View').style.display = 'none';
     document.getElementById('subnetVisualizerView').style.display = 'flex';
 
+    hideAllAtomPaginationBars();
+
     currentFile = ''; // no graded exercise is "current" while the tool is open
 
     // The console drawer/output panel is exercise-specific (sample output
@@ -4717,6 +4943,8 @@ function showAtomPage(atomNumber) {
     document.getElementById('atomPlaceholderView').style.display = 'block';
     document.getElementById('atomPlaceholderTitle').textContent = `Atom ${atomNumber}`;
 
+    hideAllAtomPaginationBars();
+
     currentFile = ''; // no graded exercise is "current" while a placeholder page is open
 
     // Same reasoning as showSubnetVisualizer: the console drawer/output
@@ -4734,7 +4962,13 @@ function switchExercise(name, el) {
     document.getElementById('atom1View').style.display = 'none';
     document.getElementById('atom2View').style.display = 'none';
     document.getElementById('atom3View').style.display = 'none';
+    document.getElementById('atom4View').style.display = 'none';
     document.getElementById('exerciseArea').style.display = 'block';
+    // The atom pagination bars are direct children of <main> now (real
+    // block-level siblings of #contentScrollArea, not nested inside their
+    // own atomXView — see index.html), so hiding an atomXView no longer
+    // hides its bar "for free"; hide all four explicitly here too.
+    hideAllAtomPaginationBars();
     // The visualizer hides the timer bar (it's exercise-specific chrome)
     // without stopping the underlying interval — re-show it here if an
     // exam timer is actually still running, rather than leaving it hidden

@@ -227,6 +227,14 @@
         </nav>
 
         <main class="content" role="main">
+            <!-- Everything that switches/scrolls (timer, loader, and every
+                 exercise/tool/atom view) lives inside this wrapper. It's the
+                 flex: 1 scrollable region of <main> — see .content-scroll-area
+                 in styles.css — bounded below by the atom pagination bars,
+                 which are real block-level siblings of this wrapper (direct
+                 children of <main>, not nested inside it), so they can never
+                 float over / get scrolled behind by anything in here. -->
+            <div id="contentScrollArea" class="content-scroll-area">
             <div id="timerContainer" class="timer-container" style="display: none;" role="region" aria-label="Timer" aria-live="polite">
                 <div class="timer-badge">
                     <span class="timer-label">Time Remaining:</span>
@@ -567,6 +575,18 @@
                     <p>Content for this section hasn't been added yet — check back later.</p>
                 </div>
             </div>
+            </div><!-- /#contentScrollArea -->
+
+            <!-- Atom question-navigation bars: direct children of <main>
+                 (#appContainer > main > ...), one per Atom, each hidden by
+                 default. Only the bar for the currently-open Atom view is
+                 shown (see showAtom1Page/2/3/4 + hideAllAtomPaginationBars
+                 in script.js) — as a real block below #contentScrollArea,
+                 never overlapping it. -->
+            <div id="atom1PaginationContainer" class="atom-pagination-container" style="display:none;"></div>
+            <div id="atom2PaginationContainer" class="atom-pagination-container" style="display:none;"></div>
+            <div id="atom3PaginationContainer" class="atom-pagination-container" style="display:none;"></div>
+            <div id="atom4PaginationContainer" class="atom-pagination-container" style="display:none;"></div>
         </main>
     </div>
 

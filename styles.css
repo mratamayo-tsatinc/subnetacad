@@ -281,7 +281,7 @@ body, html {
 
     /* Content shifts flush to the left edge once the sidebar collapses,
        right under the fixed hamburger button — give it clearance there. */
-    .sidebar.sidebar-collapsed + .content {
+    .sidebar.sidebar-collapsed + .content .content-scroll-area {
         padding-top: 4.5rem;
     }
 }
@@ -465,9 +465,20 @@ body, html {
     transform: scaleY(1);
 }
 
-/* Main Content Area */
+/* Main Content Area
+   .content is now a flex COLUMN shell, not the scrolling element itself:
+   - .content-scroll-area (its first child) is the actual scrollable
+     region and carries the padding .content used to carry directly.
+   - The atom-pagination-container bars are its OTHER, later children —
+     real block-level siblings of the scroll area, not something
+     overlaid on top of it via position: fixed/sticky. That's what makes
+     them a genuine layout boundary: the scroll area's available height
+     is whatever's left over after the pager bar's own box is laid out,
+     so content can never scroll "behind"/underneath it. */
 .content {
     flex: 1;
+    display: flex;
+    flex-direction: column;
     /* Flex items default to min-width: auto, meaning this box refuses to
        shrink below the intrinsic (min-content) width of whatever's
        inside it. The Subnet Visualizer panels below were designed for a
@@ -475,14 +486,30 @@ body, html {
        override .content silently grows past the available row width the
        moment the visualizer's wider rows (tables, bit grids) are open,
        producing a page-level horizontal scrollbar. min-width: 0 lets it
-       shrink to whatever width the flex row actually gives it; overflow-x
-       is the safety net for any residual sub-pixel overflow, matching the
-       overflow-x: hidden the visualizer's own page shell used to rely on. */
+       shrink to whatever width the flex row actually gives it. Same idea
+       vertically: min-height: 0 lets this column shrink to the height
+       .main-layout's flex row actually gives it (rather than growing to
+       fit its content), which is what lets the inner scroll area below
+       be the thing that scrolls instead of the whole page. */
     min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+    background: linear-gradient(to bottom, var(--bg), var(--surface));
+}
+
+/* The actual scrollable region: everything that used to sit directly in
+   .content (timer, loader, exercise/tool/atom views) now lives in here
+   instead, and this is what carries .content's old 2rem padding. flex: 1
+   + min-height: 0 makes it consume exactly "whatever height is left after
+   the pager bar(s) below it," so it's naturally bounded by — and never
+   scrolls underneath — those bars. */
+.content-scroll-area {
+    flex: 1 1 auto;
+    min-height: 0;
+    min-width: 0;
+    overflow-y: auto;
     overflow-x: hidden;
     padding: 2rem;
-    overflow-y: auto;
-    background: linear-gradient(to bottom, var(--bg), var(--surface));
 }
 
 /* --- 4. THE CODE EDITOR (Interactive Part) --- */
@@ -812,7 +839,7 @@ body, html {
     }
 
     /* Room so page content doesn't sit under the fixed hamburger button */
-    .content {
+    .content-scroll-area {
         padding: 4.5rem 1rem 1rem 1rem;
     }
     
@@ -4178,6 +4205,109 @@ button:focus-visible, input:focus-visible {
 }
 
 /* ============================================================
+   ATOM 1 — REQUIREMENT CARD (how the question is COMMUNICATED)
+   Replaces the old single narrative sentence with a compact, icon-labeled
+   card of three scannable rows: the given network, the requirement, and
+   the task. Scoped entirely to "atom1-req-" classes so it cannot affect
+   any other Atom, the bit grid, the given-network octet boxes in Panel 1,
+   or grading — only how the question text itself is presented.
+   Mobile-first: rows stack by default; past 640px they become a
+   horizontal strip so all three read left-to-right at a glance.
+   ============================================================ */
+.atom1-req-card {
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+  overflow: hidden;
+  margin: 0 0 1.25rem;
+}
+.atom1-req-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.8rem 0.9rem;
+  border-bottom: 1px solid var(--border-soft);
+}
+.atom1-req-row:last-child { border-bottom: none; }
+
+.atom1-req-icon {
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.95rem;
+}
+.atom1-req-icon-network { background: var(--locked-soft); color: #93c5fd; }
+.atom1-req-icon-requirement { background: var(--borrowed-soft); color: #fcd34d; }
+.atom1-req-icon-requirement.atom1-req-icon-hosts { background: var(--host-soft); color: #6ee7b7; }
+.atom1-req-icon-action { background: var(--bg-surface-2); color: var(--text-dim); }
+
+.atom1-req-body { min-width: 0; flex: 1 1 auto; }
+.atom1-req-eyebrow {
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-dim);
+  font-weight: 700;
+  margin-bottom: 2px;
+}
+
+.atom1-req-main { display: flex; align-items: center; gap: 0.55rem; flex-wrap: wrap; }
+/* Address + CIDR render as ONE unbroken token ("202.197.98.0/24") — the
+   notation a network engineer expects — never split apart by the Class
+   badge, which sits BEFORE this token instead of in between. */
+.atom1-req-value {
+  font-family: var(--font-mono);
+  font-weight: 800;
+  font-size: 1.05rem;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+.atom1-req-cidr { color: #fcd34d; }
+.atom1-req-badge {
+  flex: 0 0 auto;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--locked);
+  background: var(--locked-soft);
+  color: #93c5fd;
+  white-space: nowrap;
+}
+
+.atom1-req-target { display: flex; align-items: center; gap: 0.7rem; }
+.atom1-req-target-num {
+  font-family: var(--font-mono);
+  font-weight: 900;
+  font-size: 1.7rem;
+  line-height: 1;
+  color: #fcd34d;
+}
+.atom1-req-target-num.atom1-req-target-num-hosts { color: #6ee7b7; }
+.atom1-req-target-label { font-size: 0.78rem; color: var(--text-dim); }
+
+.atom1-req-action-text { font-size: 0.82rem; color: var(--text-dim); line-height: 1.45; }
+
+@media (min-width: 640px) {
+  .atom1-req-card { display: flex; }
+  .atom1-req-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+    border-bottom: none;
+    border-right: 1px solid var(--border-soft);
+    flex: 1 1 0;
+    min-width: 0;
+  }
+  .atom1-req-row:last-child { border-right: none; }
+  .atom1-req-icon { margin-bottom: 0.15rem; }
+}
+
+/* ============================================================
    ATOM 1 — DEDICATED FULL-WIDTH VIEW
    Every question renders as its own full-size .panel (the same component
    the Subnet Visualizer itself uses), stacked on one continuous scrollable
@@ -4253,6 +4383,179 @@ button:focus-visible, input:focus-visible {
   background: rgba(255, 152, 0, 0.1);
   color: var(--warning);
   border-left: 4px solid var(--warning);
+}
+
+/* ============================================================
+   ATOM PAGINATION — one-question-at-a-time nav bar (Atom 1-4)
+   Replaces long-scroll navigation through a stacked question list.
+   Desktop shows First/Prev, individual question-number buttons
+   (windowed with an ellipsis past ~5-7 numbers), Next/Last. Mobile
+   swaps the number row for a compact "Qn of N" jump <select> between
+   the Prev/Next arrows, so paging never requires scanning a wide
+   strip of tiny targets on a small screen.
+   ============================================================ */
+/* A real in-flow block, not an overlay: no position: fixed/sticky at all.
+   It's now a direct child of <main class="content"> (a sibling of
+   .content-scroll-area, see the .content rule above), so it occupies its
+   own genuine space at the bottom of main — the scroll area's flex: 1
+   height is computed AROUND this box, meaning question content can never
+   scroll underneath/behind it, and it can never spill past main's own
+   edges into the sidebar. Hidden by default (see the inline
+   style="display:none" on each #atomXPaginationContainer in index.html);
+   JS shows only the container belonging to whichever Atom view is
+   currently active (see showAtom1Page/2/3/4 and hideAllAtomPaginationBars
+   in script.js) and hides all four whenever a non-Atom view is shown. */
+.atom-pagination-container {
+  flex-shrink: 0;
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  margin: 0;
+  padding: 10px max(12px, env(safe-area-inset-right)) calc(10px + env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+  background: var(--bg-surface);
+  border-top: 1px solid var(--border-soft);
+  box-shadow: 0 -6px 18px rgba(0, 0, 0, 0.35);
+}
+
+/* No bottom padding reserve needed here anymore: the pager bar is now a
+   real block sibling of .content-scroll-area (see .atom-pagination-container
+   above), not an overlay floating on top of the last question, so nothing
+   underneath it needs extra clearance. */
+
+.atom-pagination {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: center;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: 999px;
+  padding: 8px 10px;
+  box-shadow: var(--shadow-sm);
+}
+
+.atom-page-nav-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 1px solid var(--border-soft);
+  background: var(--bg-surface-2);
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: 0.85rem;
+  transition: var(--transition);
+  flex-shrink: 0;
+}
+
+.atom-page-nav-btn:hover:not(:disabled) {
+  background: var(--locked-soft);
+  border-color: var(--locked);
+  color: #93c5fd;
+}
+
+.atom-page-nav-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+/* Fixed width = ATOM_PAGE_WINDOW_SIZE (5) slots * 36px button + 4 gaps of
+   4px = 196px. Paired with the JS sliding-window logic (always exactly 5
+   numbers, or fewer only when the whole question set has fewer than 5
+   questions — which never changes mid-session), this keeps the bar's
+   width constant across every page instead of growing/shrinking as
+   digits or ellipses come and go. No wrapping: the fixed width already
+   guarantees every slot fits on one line. */
+.atom-page-numbers {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: 196px;
+  flex-shrink: 0;
+}
+
+.atom-page-btn {
+  min-width: 36px;
+  height: 36px;
+  padding: 0 8px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.atom-page-btn:hover {
+  background: var(--bg-surface-2);
+  color: var(--text-primary);
+}
+
+.atom-page-btn.active {
+  background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+  border-color: var(--primary);
+  color: #fff;
+}
+
+/* Mobile "Qn of N" jump control — hidden on wide screens where the full
+   number row above already fits. */
+.atom-page-mobile-indicator {
+  display: none;
+  align-items: center;
+  gap: 6px;
+}
+
+.atom-page-jump-select {
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border-soft);
+  color: var(--text-primary);
+  padding: 7px 10px;
+  border-radius: 999px;
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.atom-page-jump-select:focus-visible {
+  outline: 2px solid var(--host);
+  outline-offset: 2px;
+}
+
+.atom-page-mobile-total {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+/* Mobile: numbers row swaps for the compact "Qn of N" jump dropdown, and
+   the bar itself becomes a full-width toolbar (it's already a full-width,
+   real block-level bottom bar at every screen size — see
+   .atom-pagination-container). */
+@media (max-width: 768px) {
+  .atom-page-numbers {
+    display: none;
+  }
+  .atom-page-mobile-indicator {
+    display: flex;
+  }
+
+  .atom-pagination {
+    width: 100%;
+    max-width: 480px;
+    margin: 0 auto;
+    justify-content: space-between;
+    border-radius: 14px;
+    padding: 8px 12px;
+  }
 }
 
 /* ============================================================
