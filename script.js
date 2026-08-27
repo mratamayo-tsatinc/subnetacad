@@ -103,7 +103,7 @@ const QUESTION_CONFIG = {
     // questions.
     atom5: {
         enabled: true,
-        numQuestions: 15
+        numQuestions: 20
     },
 
     // Grading
@@ -1478,6 +1478,21 @@ function buildConversionExerciseData(item) {
         // Atom 4 subnet IDs are entered per displayed row, just like Atom 3;
         // there is no single target subnet or fixed subnet-bit pattern.
     } : {};
+    // Atom 5 questions carry the structured fields buildAtom5RequirementCardHtml
+    // needs to render its card (given network/host + optional highlighted
+    // target + the task itself) — replacing the old single promptHtml
+    // paragraph, which packed the class label, borrowed-bit count, and the
+    // question all into one sentence.
+    const atom5Extra = q.type === 'atom5' ? {
+        subType: q.subType,
+        cardGivenLabel: q.givenLabel,
+        cardGivenValue: q.givenValue,
+        cardTargetLabel: q.targetLabel,
+        cardTargetValue: q.targetValue,
+        cardTargetSuffix: q.targetSuffix,
+        cardTargetIcon: q.targetIcon,
+        cardTaskText: q.taskText
+    } : {};
     return Object.assign({
         html: renderQuestionHtml(item.name, q),
         answers: isOctetScored
@@ -1498,7 +1513,7 @@ function buildConversionExerciseData(item) {
         isPartial: false,
         isConversionQuestion: true,
         isLineOrdering: false
-    }, atom1Extra, atom2Extra, atom3Extra, atom4Extra);
+    }, atom1Extra, atom2Extra, atom3Extra, atom4Extra, atom5Extra);
 }
 
 function renderBitGroup(qid, width) {
@@ -4250,10 +4265,20 @@ function genAtom5SupportedCount(rng) {
     const correct = askHosts
         ? String(Math.max(0, Math.pow(2, hostBits) - 2))
         : String(Math.pow(2, borrowedBits));
-    const promptHtml = askHosts
-        ? `Given the network <b>${ipStr}/${targetCidr}</b> (a Class ${range.cls} network with ${borrowedBits} borrowed bit${borrowedBits === 1 ? '' : 's'}), how many <b>usable hosts</b> does each subnet support?`
-        : `Given the network <b>${ipStr}/${targetCidr}</b> (a Class ${range.cls} network with ${borrowedBits} borrowed bit${borrowedBits === 1 ? '' : 's'}), how many <b>subnets</b> does this support?`;
-    return { subType, promptHtml, correct, given: ipStr };
+    // Deliberately states only the final classless network (address +
+    // target CIDR) — the class and borrowed-bit count are both derivable
+    // from that alone, so restating them would just hand the student the
+    // math they're meant to work out themselves.
+    return {
+        subType,
+        givenLabel: 'Given network',
+        givenValue: ipStr + '/' + targetCidr,
+        taskText: askHosts
+            ? 'How many <b>usable hosts</b> does each subnet support?'
+            : 'How many <b>subnets</b> does this network support?',
+        correct,
+        given: ipStr
+    };
 }
 
 // "How many bits must be borrowed to produce this required subnet/host
@@ -4280,11 +4305,22 @@ function genAtom5BitsRequired(rng) {
         correctBits = totalHostBits - hTarget;
     }
 
-    const promptHtml = requirementType === 'subnets'
-        ? `A network engineer is assigned the <b>Class ${range.cls}</b> network <b>${ipStr}/${networkBits}</b> and must support at least <b>${requiredCount}</b> subnet${requiredCount === 1 ? '' : 's'}. How many bits must be borrowed?`
-        : `A network engineer is assigned the <b>Class ${range.cls}</b> network <b>${ipStr}/${networkBits}</b> and each subnet must support at least <b>${requiredCount}</b> usable host${requiredCount === 1 ? '' : 's'}. How many bits must be borrowed?`;
+    const isHosts = requirementType === 'hosts';
 
-    return { subType: 'bits_required', promptHtml, correct: String(correctBits), given: ipStr };
+    // Class label dropped — the address itself already implies the class,
+    // and restating it alongside the CIDR was redundant.
+    return {
+        subType: 'bits_required',
+        givenLabel: 'Given network',
+        givenValue: ipStr + '/' + networkBits,
+        targetLabel: isHosts ? 'Each subnet must support at least' : 'Must support at least',
+        targetValue: requiredCount,
+        targetSuffix: isHosts ? ('usable host' + (requiredCount === 1 ? '' : 's')) : ('subnet' + (requiredCount === 1 ? '' : 's')),
+        targetIcon: isHosts ? 'fa-house-user' : 'fa-layer-group',
+        taskText: 'How many bits must be borrowed?',
+        correct: String(correctBits),
+        given: ipStr
+    };
 }
 
 // "What is the subnet mask of the following IP address?" — Atom 2's own
@@ -4304,7 +4340,9 @@ function genAtom5SubnetMask(rng) {
     const ipStr = hostOctets.join('.');
     return {
         subType: 'subnet_mask',
-        promptHtml: `What is the subnet mask for the IP address <b>${ipStr}/${targetCidr}</b>?`,
+        givenLabel: 'Given host',
+        givenValue: ipStr + '/' + targetCidr,
+        taskText: 'What is the <b>subnet mask</b> for this network?',
         correct: maskOctets.join('.'),
         given: ipStr
     };
@@ -4320,7 +4358,9 @@ function genAtom5SubnetsProduced(rng) {
     const ipStr = baseOctets.join('.');
     return {
         subType: 'subnets_produced',
-        promptHtml: `The <b>Class ${range.cls}</b> network <b>${ipStr}/${networkBits}</b> is subnetted using a classless prefix of <b>/${targetCidr}</b>. How many subnets are produced?`,
+        givenLabel: 'Given network',
+        givenValue: ipStr + '/' + targetCidr,
+        taskText: 'How many <b>subnets</b> does this produce?',
         correct: String(Math.pow(2, borrowedBits)),
         given: ipStr
     };
@@ -4341,7 +4381,13 @@ function genAtom5SubnetAddressQuestion(rng, which) {
     const label = which === 'network' ? 'network address' : 'broadcast address';
     return {
         subType: which === 'network' ? 'network_address_of_subnet' : 'broadcast_address_of_subnet',
-        promptHtml: `The <b>Class ${range.cls}</b> network <b>${ipStr}/${networkBits}</b> is subnetted with <b>${borrowedBits}</b> borrowed bit${borrowedBits === 1 ? '' : 's'} (classless <b>/${targetCidr}</b>). What is the <b>${label}</b> of <b>Subnet ${subnetIndex}</b> (subnets numbered starting at 0)?`,
+        givenLabel: 'Given network',
+        givenValue: ipStr + '/' + targetCidr,
+        targetLabel: 'Find the ' + label + ' of',
+        targetValue: 'Subnet ' + subnetIndex,
+        targetSuffix: 'numbered from 0',
+        targetIcon: 'fa-hashtag',
+        taskText: 'What is the <b>' + label + '</b> of this subnet?',
         correct: which === 'network' ? network : broadcast,
         given: ipStr
     };
@@ -4365,7 +4411,9 @@ function genAtom5HostBelongsToSubnet(rng) {
 
     return {
         subType: 'host_belongs_to_subnet',
-        promptHtml: `A host has the IP address <b>${hostIpStr}</b> within the <b>Class ${range.cls}</b> network <b>${baseOctets.join('.')}/${networkBits}</b>, subnetted with a classless prefix of <b>/${targetCidr}</b> (${borrowedBits} borrowed bit${borrowedBits === 1 ? '' : 's'}). Which subnet index (numbered starting at 0) does this host belong to?`,
+        givenLabel: 'Given host',
+        givenValue: hostIpStr + '/' + targetCidr,
+        taskText: 'Which <b>subnet index</b> (numbered from 0) does this host belong to?',
         correct: String(subnetIndex),
         given: hostIpStr
     };
@@ -4422,18 +4470,55 @@ function buildAtom5QuestionList(seedStr) {
 ========================================================= */
 let atom5ActionsDelegated = false;
 
+// One row of the card: an icon, an eyebrow label, and whatever body markup
+// the caller supplies. Shared by every row below so the given/target/task
+// rows all come out of the same small template.
+function atom5CardRow(iconClass, iconGlyph, eyebrow, bodyHtml) {
+    return '<div class="atom1-req-row">' +
+        '<div class="atom1-req-icon ' + iconClass + '"><i class="fa-solid ' + iconGlyph + '" aria-hidden="true"></i></div>' +
+        '<div class="atom1-req-body">' +
+            '<div class="atom1-req-eyebrow">' + eyebrow + '</div>' +
+            bodyHtml +
+        '</div>' +
+    '</div>';
+}
+
+// Reuses Atom 1/3's own requirement/task-card row language (given network,
+// an optional highlighted target, then the task) instead of the old single
+// prose paragraph — the given network/host address is its own scannable
+// row, any question-specific target (a required count, or a subnet index
+// to look up) gets its own highlighted row exactly like Atom 1's
+// atom1-req-target-num, and the actual question sits in a plain final row.
+// Not every subType has a target row (e.g. "how many subnets does this
+// produce" IS the question, nothing to highlight separately) — that middle
+// row is only rendered when the generator supplied a cardTargetValue.
 function buildAtom5RequirementCardHtml(ex) {
-    return (
-        '<div class="atom1-req-card">' +
-            '<div class="atom1-req-row">' +
-                '<div class="atom1-req-icon atom1-req-icon-action"><i class="fa-solid fa-circle-question" aria-hidden="true"></i></div>' +
-                '<div class="atom1-req-body">' +
-                    '<div class="atom1-req-eyebrow">Scenario</div>' +
-                    '<div class="atom1-req-action-text atom5-scenario-text">' + ex.promptHtml + '</div>' +
-                '</div>' +
-            '</div>' +
-        '</div>'
+    let rowsHtml = atom5CardRow(
+        'atom1-req-icon-network',
+        'fa-diagram-project',
+        ex.cardGivenLabel || 'Given network',
+        '<div class="atom1-req-main"><span class="atom1-req-value">' + ex.cardGivenValue + '</span></div>'
     );
+
+    if (ex.cardTargetValue !== undefined && ex.cardTargetValue !== null && ex.cardTargetValue !== '') {
+        rowsHtml += atom5CardRow(
+            'atom1-req-icon-requirement',
+            ex.cardTargetIcon || 'fa-bullseye',
+            ex.cardTargetLabel || 'Target',
+            '<div class="atom1-req-target"><span class="atom1-req-target-num">' + ex.cardTargetValue + '</span>' +
+                (ex.cardTargetSuffix ? '<span class="atom1-req-target-label">' + ex.cardTargetSuffix + '</span>' : '') +
+            '</div>'
+        );
+    }
+
+    rowsHtml += atom5CardRow(
+        'atom1-req-icon-action',
+        'fa-circle-question',
+        'Find',
+        '<div class="atom1-req-action-text atom5-scenario-text">' + ex.cardTaskText + '</div>'
+    );
+
+    return '<div class="atom1-req-card">' + rowsHtml + '</div>';
 }
 
 function buildAtom5PanelHtml(qid, ex, index) {
