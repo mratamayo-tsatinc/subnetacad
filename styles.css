@@ -3922,14 +3922,13 @@ button:focus-visible, input:focus-visible {
 
 /* ============================================================
    SUBNETIFY — SIDEBAR NAVIGATION (localized)
-   Every rule below is scoped to .tools-nav-list / .tools-nav-sublist /
-   .tools-nav-subgroup / .nav-tool-tag / .atom-placeholder-* — i.e. only
-   the Subnetify and Atoms entries in the sidebar and their placeholder
-   pages. Nothing here redefines a bare ".sidebar li" or "#fileList li"
-   selector, so none of it touches the graded exercise list's own
-   look/behavior (active-bar, hover state, score pills, etc.) — that
-   list is styled entirely by the base sidebar rules earlier in this
-   file, untouched by this section.
+   Every rule below is scoped to .tools-nav-list / .nav-tool-tag /
+   .atom-placeholder-* — i.e. only the Subnetify and Atoms entries in
+   the sidebar and their placeholder pages. Nothing here redefines a
+   bare ".sidebar li" or "#fileList li" selector, so none of it touches
+   the graded exercise list's own look/behavior (active-bar, hover
+   state, score pills, etc.) — that list is styled entirely by the base
+   sidebar rules earlier in this file, untouched by this section.
    ============================================================ */
 
 /* Tools nav section in the sidebar (Subnet Visualizer entry) — same
@@ -3996,103 +3995,6 @@ button:focus-visible, input:focus-visible {
   border: 1px solid rgba(245, 158, 11, 0.4);
   white-space: nowrap;
   flex-shrink: 0;
-}
-
-/* --- Atoms sub-navigation (placeholder pages nested under Subnetify) --- */
-/* Wrapper <li> for the whole "Atoms" group. Non-interactive itself (no
-   hover/active affordance, no pointer cursor) — it exists purely so the
-   subheader label + nested <ul> can live inside a single valid <li> of
-   the outer .tools-nav-list, since a <ul> can't be a direct child of
-   another <ul>. */
-.tools-nav-subgroup {
-  cursor: default;
-  display: block;
-  padding: 0 !important;
-  margin: 0.2rem 0 0 0 !important;
-  background: transparent !important;
-  border: none !important;
-}
-
-.tools-nav-subgroup:hover {
-  background: transparent !important;
-}
-
-/* This wrapper is also a <li> under .sidebar, so it inherits the same
-   generic active-bar pseudo-element as every other sidebar row — but it
-   is never itself clickable/active, so switch it off unconditionally
-   rather than leaving a dead ::before sitting behind transparent
-   backgrounds. */
-.tools-nav-subgroup::before {
-  content: none;
-  display: none;
-}
-
-/* Group label, same visual language as the graded exercise list's own
-   .sidebar-phase-header — quiet, uppercase, no interactive affordance —
-   so it reads as a grouping divider rather than a clickable row. */
-.tools-nav-subheader {
-  display: block;
-  padding: 0.5rem 0.6rem 0.2rem;
-  font-size: 0.68rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 1.1px;
-  color: var(--text-tertiary);
-}
-
-/* Indented nested list holding the Atom 1–5 placeholder entries. Mirrors
-   .tools-nav-list's own <li> styling but sits inset from the left edge
-   and carries a thin connecting rule, so it visually reads as "inside"
-   the Subnetify tools group rather than a sibling section of equal
-   weight. */
-.tools-nav-sublist {
-  list-style: none;
-  margin: 0 0 0.4rem 0;
-  padding: 0 0 0 0.6rem;
-  border-left: 2px solid var(--border-color);
-  margin-left: 0.85rem;
-}
-
-.tools-nav-sublist li {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 8px;
-  padding: 0.6rem 0.85rem;
-  margin: 0.3rem 0;
-  cursor: pointer;
-  border-radius: 8px;
-  font-size: clamp(0.78rem, 2.1vw, 0.86rem);
-  font-weight: 500;
-  transition: var(--transition);
-  position: relative;
-  color: var(--text-main);
-  border: 1px solid transparent;
-}
-
-.tools-nav-sublist li:hover {
-  background: var(--surface-hover);
-  border-color: var(--border-color);
-}
-
-.tools-nav-sublist li.active {
-  background: rgba(245, 158, 11, 0.12);
-  border-color: var(--borrowed);
-  color: #fcd34d;
-  font-weight: 600;
-}
-
-.tools-nav-sublist li i {
-  color: var(--borrowed);
-  margin-right: 4px;
-}
-
-/* Same rationale as .tools-nav-list li::before above: suppress the
-   inherited blue active-bar for the nested Atom 1–5 rows only, without
-   touching the exercise list's own active-bar behavior. */
-.tools-nav-sublist li::before {
-  content: none;
-  display: none;
 }
 
 /* --- Atom placeholder page --- */
