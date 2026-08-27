@@ -210,9 +210,9 @@
                             <span><i class="fa-solid fa-atom" aria-hidden="true"></i> Atom 4</span>
                           <span class="nav-score" id="score-atom4">0/12</span>
                         </li>
-                        <li id="nav-atom5" onclick="showAtomPage(5)">
+                        <li id="nav-atom5" onclick="showAtom5Page()">
                             <span><i class="fa-solid fa-atom" aria-hidden="true"></i> Atom 5</span>
-                            <span class="nav-tool-tag">Ungraded</span>
+                            <span class="nav-score" id="score-atom5">0/15</span>
                         </li>
                     </ul>
                 </li>
@@ -562,6 +562,19 @@
                 <div id="atom4QuestionsContainer" class="atom1-questions-container"></div>
               </div>
 
+              <!-- ============================================================ -->
+              <!-- ATOM 5 — scored, full-width dedicated view. Combines the      -->
+              <!-- reasoning from Atoms 1-4 into narrative word problems: no     -->
+              <!-- bit-grid clicking, just a single typed answer per question.   -->
+              <!-- ============================================================ -->
+              <div id="atom5View" class="subnetify-app atom1-app" style="display:none;">
+                <div class="card-header sv-header">
+                  <h2><i class="fa-solid fa-atom" aria-hidden="true"></i> Atom 5 · Applied Scenarios</h2>
+                  <p>Read each scenario and type in the answer — a subnet or host count, a required borrow count, a subnet mask, a network/broadcast address, or which subnet a host belongs to. This combines Atoms 1–4's skills without any bit-clicking. Scored — every answer locks once verified, and results count toward your Total Points.</p>
+                </div>
+                <div id="atom5QuestionsContainer" class="atom1-questions-container"></div>
+              </div>
+
             <!-- ============================================================ -->
             <!-- ATOM PAGES — placeholder views, ungraded, under Subnetify      -->
             <!-- ============================================================ -->
@@ -587,6 +600,7 @@
             <div id="atom2PaginationContainer" class="atom-pagination-container" style="display:none;"></div>
             <div id="atom3PaginationContainer" class="atom-pagination-container" style="display:none;"></div>
             <div id="atom4PaginationContainer" class="atom-pagination-container" style="display:none;"></div>
+            <div id="atom5PaginationContainer" class="atom-pagination-container" style="display:none;"></div>
         </main>
     </div>
 

@@ -5208,6 +5208,24 @@ button:focus-visible, input:focus-visible {
   .atom4-incorrect { border-color: var(--error); }
   .atom4-actions { margin-top: 14px; }
 
+/* ---------- Atom 5: applied scenarios (narrative + single text answer) ---------- */
+/* Reuses Atom 1/2's own .atom1-req-card/.atom1-req-row language for the
+   scenario text (see buildAtom5RequirementCardHtml in script.js) and
+   .answer-input-num for the text field — no new component language
+   needed, just spacing to sit correctly between the scenario card and
+   the Verify/Reset row below it. */
+.atom5-scenario-text {
+  font-size: 0.95rem;
+  line-height: 1.6;
+}
+.atom5-answer-row {
+  margin: 1rem 0 0.25rem;
+}
+.atom5-answer-row .answer-input-num {
+  width: 100%;
+  max-width: 320px;
+}
+
   @media (max-width: 480px) {
     .atom4-boundary-label { align-items: flex-start; flex-direction: column; gap: 3px; }
   }

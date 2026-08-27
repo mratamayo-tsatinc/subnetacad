@@ -94,6 +94,18 @@ const QUESTION_CONFIG = {
         numQuestions: 5
     },
 
+    // Atom 5: Applied Scenarios — combines Atoms 1-4's underlying skills
+    // (borrow-bit math, mask assembly, subnet/host enumeration) into
+    // narrative word problems. There's no bit-grid interaction here: every
+    // question is a single typed answer (a subnet/host count, a required
+    // borrow count, a subnet mask, a network/broadcast address, or a
+    // subnet index), graded all-or-nothing like Phase 7's class_cidr
+    // questions.
+    atom5: {
+        enabled: true,
+        numQuestions: 15
+    },
+
     // Grading
     strictLeadingZeros: true // binary answers must match bit-width exactly
 };
@@ -706,6 +718,7 @@ function questionTypeLabel(type) {
         case 'atom2': return 'Mask Assembly';
         case 'atom3': return 'Space Map';
         case 'atom4': return 'Boundaries';
+        case 'atom5': return 'Applied Scenario';
         default: return '';
     }
 }
@@ -1140,6 +1153,14 @@ async function loadAllExercises() {
     });
     renderAtom4View(atom4List);
 
+    // --- Atom 5: scored, dedicated view combining Atoms 1-4's underlying
+    // skills into narrative word-problems (no bit-grid interaction) ---
+    const atom5List = buildAtom5QuestionList(seedStr);
+    atom5List.forEach(item => {
+        exerciseData[item.name] = buildConversionExerciseData(item);
+    });
+    renderAtom5View(atom5List);
+
     document.getElementById('loader').style.display = 'none';
 
     // --- Restore any persisted exam-mode progress for this student ---
@@ -1174,6 +1195,7 @@ async function loadAllExercises() {
     syncAtom2ViewDOM();
     syncAtom3ViewDOM();
     syncAtom4ViewDOM();
+    syncAtom5ViewDOM();
 
     // Default landing page after login: the ungraded Subnet Visualizer
     // tool, not the first graded exercise. A fresh login should drop the
@@ -2037,7 +2059,7 @@ function initAtomPagination(atomKey) {
 // (Exercises, Subnet Visualizer, an ungraded Atom placeholder, or another
 // Atom) must explicitly hide all four and then show at most one.
 function hideAllAtomPaginationBars() {
-    ['atom1', 'atom2', 'atom3', 'atom4'].forEach(key => {
+    ['atom1', 'atom2', 'atom3', 'atom4', 'atom5'].forEach(key => {
         const bar = document.getElementById(key + 'PaginationContainer');
         if (bar) bar.style.display = 'none';
     });
@@ -2388,6 +2410,7 @@ function showAtom1Page() {
     document.getElementById('atom2View').style.display = 'none';
     document.getElementById('atom3View').style.display = 'none';
     document.getElementById('atom4View').style.display = 'none';
+    document.getElementById('atom5View').style.display = 'none';
     document.getElementById('atom1View').style.display = 'flex';
     document.getElementById('timerContainer').style.display = timerIntervalId ? 'flex' : 'none';
 
@@ -2852,6 +2875,7 @@ function showAtom2Page() {
     document.getElementById('atom3View').style.display = 'none';
     document.getElementById('timerContainer').style.display = timerIntervalId ? 'flex' : 'none';
     document.getElementById('atom4View').style.display = 'none';
+    document.getElementById('atom5View').style.display = 'none';
 
     showAtomPaginationBar('atom2');
 
@@ -4121,7 +4145,7 @@ function syncAtom4ViewDOM() {
 function showAtom4Page() {
     document.querySelectorAll('.sidebar li').forEach(li => li.classList.remove('active'));
     document.getElementById('nav-atom4')?.classList.add('active');
-    ['exerciseArea', 'subnetVisualizerView', 'atomPlaceholderView', 'atom1View', 'atom2View', 'atom3View'].forEach(id => {
+    ['exerciseArea', 'subnetVisualizerView', 'atomPlaceholderView', 'atom1View', 'atom2View', 'atom3View', 'atom5View'].forEach(id => {
         const view = document.getElementById(id);
         if (view) view.style.display = 'none';
     });
@@ -4147,10 +4171,536 @@ function showAtom3Page() {
     document.getElementById('atom1View').style.display = 'none';
     document.getElementById('atom2View').style.display = 'none';
     document.getElementById('atom4View').style.display = 'none';
+    document.getElementById('atom5View').style.display = 'none';
     document.getElementById('atom3View').style.display = 'flex';
     document.getElementById('timerContainer').style.display = timerIntervalId ? 'flex' : 'none';
 
     showAtomPaginationBar('atom3');
+
+    currentFile = ''; // no single graded exercise is "current" on this page
+
+    closeSampleOutputModal();
+    updateConsoleDrawerTab(false);
+
+    closeSidebarIfMobile();
+}
+
+/* =========================================================
+   ATOM 5: APPLIED SCENARIOS (COMBINES ATOMS 1-4)
+   Unlike Atoms 1-4, Atom 5 isn't about clicking bits to build/assemble an
+   answer — it presents a narrative subnetting word-problem (in the style
+   of the other Atoms' own scenarios) and asks the student to type in the
+   resulting value: a subnet/host count, a required borrow-bit count, a
+   subnet mask, a network/broadcast address, or which subnet a host
+   belongs to. Every question is graded as a single exact-match text
+   answer (same grading shape as Phase 7's class_cidr question), so this
+   section needs no bit-grid rendering/interaction code at all — only
+   question generation plus a simple text-input dedicated view, following
+   the same per-question Verify/Reset + own paginated page pattern as
+   Atoms 1-4 (see ATOM_PAGINATION/showAtomQuestion, defined above).
+========================================================= */
+
+// Builds a classful base network address (host portion zeroed) for a
+// given CLASSFUL_CIDR_RANGES entry — identical convention to Atom 1/3's
+// own octet generation.
+function atom5RandomClassfulAddress(rng, range) {
+    const editableCount = range.cidr / 8;
+    const octets = [0, 0, 0, 0];
+    octets[0] = randInt(rng, range.min, range.max);
+    for (let o = 1; o < editableCount; o++) octets[o] = randInt(rng, 0, 255);
+    return octets;
+}
+
+// Composes the network address AND broadcast address of one subnet, given
+// the classful base address, the classful network-bit count, the number
+// of borrowed bits, and a subnet index within that borrowed-bit range.
+function atom5SubnetAddresses(baseOctets, networkBits, borrowedBits, subnetIndex) {
+    const prefixBits = atom1OctetsToBits(baseOctets).slice(0, networkBits);
+    const subnetBits = borrowedBits > 0
+        ? subnetIndex.toString(2).padStart(borrowedBits, '0').split('').map(Number)
+        : [];
+    const hostBitsCount = 32 - networkBits - borrowedBits;
+    const networkBitsFull = prefixBits.concat(subnetBits).concat(new Array(hostBitsCount).fill(0));
+    const broadcastBitsFull = prefixBits.concat(subnetBits).concat(new Array(hostBitsCount).fill(1));
+    const toOctets = bitsArr => [0, 1, 2, 3].map(g => atom1BitsToOctet(bitsArr.slice(g * 8, g * 8 + 8))).join('.');
+    return { network: toOctets(networkBitsFull), broadcast: toOctets(broadcastBitsFull) };
+}
+
+function atom5PickBorrowedBits(rng, networkBits, cap) {
+    const maxBorrow = Math.max(0, 30 - networkBits);
+    return randInt(rng, 1, Math.max(1, Math.min(maxBorrow, cap || 8)));
+}
+
+// --- Individual scenario generators — each returns
+// { subType, promptHtml, correct, given }, drawing fresh random values
+// from the shared rng stream every call. ---
+
+// "Given the following network (CIDR), how many supported subnets/usable
+// hosts does it have?" — a coin flip decides which of the two is asked.
+function genAtom5SupportedCount(rng) {
+    const range = pickRandom(rng, CLASSFUL_CIDR_RANGES);
+    const baseOctets = atom5RandomClassfulAddress(rng, range);
+    const networkBits = range.cidr;
+    const borrowedBits = atom5PickBorrowedBits(rng, networkBits, 8);
+    const targetCidr = networkBits + borrowedBits;
+    const hostBits = 32 - targetCidr;
+    const askHosts = rng() < 0.5;
+    const ipStr = baseOctets.join('.');
+    const subType = askHosts ? 'supported_hosts' : 'supported_subnets';
+    const correct = askHosts
+        ? String(Math.max(0, Math.pow(2, hostBits) - 2))
+        : String(Math.pow(2, borrowedBits));
+    const promptHtml = askHosts
+        ? `Given the network <b>${ipStr}/${targetCidr}</b> (a Class ${range.cls} network with ${borrowedBits} borrowed bit${borrowedBits === 1 ? '' : 's'}), how many <b>usable hosts</b> does each subnet support?`
+        : `Given the network <b>${ipStr}/${targetCidr}</b> (a Class ${range.cls} network with ${borrowedBits} borrowed bit${borrowedBits === 1 ? '' : 's'}), how many <b>subnets</b> does this support?`;
+    return { subType, promptHtml, correct, given: ipStr };
+}
+
+// "How many bits must be borrowed to produce this required subnet/host
+// count?" — Atom 1's own scenario, asked here as plain text entry.
+function genAtom5BitsRequired(rng) {
+    const range = pickRandom(rng, CLASSFUL_CIDR_RANGES);
+    const baseOctets = atom5RandomClassfulAddress(rng, range);
+    const networkBits = range.cidr;
+    const totalHostBits = 32 - networkBits;
+    const maxBorrow = Math.max(0, 30 - networkBits);
+    const requirementType = rng() < 0.5 ? 'subnets' : 'hosts';
+    const ipStr = baseOctets.join('.');
+    let correctBits, requiredCount;
+
+    if (requirementType === 'subnets') {
+        const nCap = Math.min(maxBorrow, 10);
+        const nTarget = randInt(rng, 1, Math.max(1, nCap));
+        requiredCount = randInt(rng, Math.pow(2, nTarget - 1) + 1, Math.pow(2, nTarget));
+        correctBits = nTarget;
+    } else {
+        const hCap = Math.min(totalHostBits - 1, 12);
+        const hTarget = randInt(rng, 2, Math.max(2, hCap));
+        requiredCount = randInt(rng, Math.max(1, Math.pow(2, hTarget - 1) - 1), Math.max(1, Math.pow(2, hTarget) - 2));
+        correctBits = totalHostBits - hTarget;
+    }
+
+    const promptHtml = requirementType === 'subnets'
+        ? `A network engineer is assigned the <b>Class ${range.cls}</b> network <b>${ipStr}/${networkBits}</b> and must support at least <b>${requiredCount}</b> subnet${requiredCount === 1 ? '' : 's'}. How many bits must be borrowed?`
+        : `A network engineer is assigned the <b>Class ${range.cls}</b> network <b>${ipStr}/${networkBits}</b> and each subnet must support at least <b>${requiredCount}</b> usable host${requiredCount === 1 ? '' : 's'}. How many bits must be borrowed?`;
+
+    return { subType: 'bits_required', promptHtml, correct: String(correctBits), given: ipStr };
+}
+
+// "What is the subnet mask of the following IP address?" — Atom 2's own
+// scenario, asked here as plain text entry.
+function genAtom5SubnetMask(rng) {
+    const range = pickRandom(rng, CLASSFUL_CIDR_RANGES);
+    const baseOctets = atom5RandomClassfulAddress(rng, range);
+    const networkBits = range.cidr;
+    const borrowedBits = atom5PickBorrowedBits(rng, networkBits, 10);
+    const targetCidr = networkBits + borrowedBits;
+    // A full random host address within this network, not the bare
+    // network address — matches Atom 2's own "given host" framing.
+    const hostOctets = baseOctets.slice();
+    for (let i = networkBits / 8; i < 4; i++) hostOctets[i] = randInt(rng, 0, 255);
+    const maskBits = '1'.repeat(targetCidr) + '0'.repeat(32 - targetCidr);
+    const maskOctets = [0, 1, 2, 3].map(g => parseInt(maskBits.substr(g * 8, 8), 2));
+    const ipStr = hostOctets.join('.');
+    return {
+        subType: 'subnet_mask',
+        promptHtml: `What is the subnet mask for the IP address <b>${ipStr}/${targetCidr}</b>?`,
+        correct: maskOctets.join('.'),
+        given: ipStr
+    };
+}
+
+// "How many subnets are produced by this IP address/CIDR?"
+function genAtom5SubnetsProduced(rng) {
+    const range = pickRandom(rng, CLASSFUL_CIDR_RANGES);
+    const baseOctets = atom5RandomClassfulAddress(rng, range);
+    const networkBits = range.cidr;
+    const borrowedBits = atom5PickBorrowedBits(rng, networkBits, 10);
+    const targetCidr = networkBits + borrowedBits;
+    const ipStr = baseOctets.join('.');
+    return {
+        subType: 'subnets_produced',
+        promptHtml: `The <b>Class ${range.cls}</b> network <b>${ipStr}/${networkBits}</b> is subnetted using a classless prefix of <b>/${targetCidr}</b>. How many subnets are produced?`,
+        correct: String(Math.pow(2, borrowedBits)),
+        given: ipStr
+    };
+}
+
+// "What is the network/broadcast address of subnet N?" — `which` is
+// 'network' or 'broadcast'.
+function genAtom5SubnetAddressQuestion(rng, which) {
+    const range = pickRandom(rng, CLASSFUL_CIDR_RANGES);
+    const baseOctets = atom5RandomClassfulAddress(rng, range);
+    const networkBits = range.cidr;
+    const borrowedBits = atom5PickBorrowedBits(rng, networkBits, 8);
+    const targetCidr = networkBits + borrowedBits;
+    const totalSubnets = Math.pow(2, borrowedBits);
+    const subnetIndex = randInt(rng, 0, totalSubnets - 1);
+    const { network, broadcast } = atom5SubnetAddresses(baseOctets, networkBits, borrowedBits, subnetIndex);
+    const ipStr = baseOctets.join('.');
+    const label = which === 'network' ? 'network address' : 'broadcast address';
+    return {
+        subType: which === 'network' ? 'network_address_of_subnet' : 'broadcast_address_of_subnet',
+        promptHtml: `The <b>Class ${range.cls}</b> network <b>${ipStr}/${networkBits}</b> is subnetted with <b>${borrowedBits}</b> borrowed bit${borrowedBits === 1 ? '' : 's'} (classless <b>/${targetCidr}</b>). What is the <b>${label}</b> of <b>Subnet ${subnetIndex}</b> (subnets numbered starting at 0)?`,
+        correct: which === 'network' ? network : broadcast,
+        given: ipStr
+    };
+}
+
+// "In what subnet does this host IP address belong?"
+function genAtom5HostBelongsToSubnet(rng) {
+    const range = pickRandom(rng, CLASSFUL_CIDR_RANGES);
+    const baseOctets = atom5RandomClassfulAddress(rng, range);
+    const networkBits = range.cidr;
+    const borrowedBits = atom5PickBorrowedBits(rng, networkBits, 6);
+    const targetCidr = networkBits + borrowedBits;
+
+    const prefixBits = atom1OctetsToBits(baseOctets).slice(0, networkBits);
+    const restBits = [];
+    for (let i = 0; i < 32 - networkBits; i++) restBits.push(randInt(rng, 0, 1));
+    const fullBits = prefixBits.concat(restBits);
+    const hostOctets = [0, 1, 2, 3].map(g => atom1BitsToOctet(fullBits.slice(g * 8, g * 8 + 8)));
+    const hostIpStr = hostOctets.join('.');
+    const subnetIndex = parseInt(restBits.slice(0, borrowedBits).join('') || '0', 2);
+
+    return {
+        subType: 'host_belongs_to_subnet',
+        promptHtml: `A host has the IP address <b>${hostIpStr}</b> within the <b>Class ${range.cls}</b> network <b>${baseOctets.join('.')}/${networkBits}</b>, subnetted with a classless prefix of <b>/${targetCidr}</b> (${borrowedBits} borrowed bit${borrowedBits === 1 ? '' : 's'}). Which subnet index (numbered starting at 0) does this host belong to?`,
+        correct: String(subnetIndex),
+        given: hostIpStr
+    };
+}
+
+// Pool of generator functions — one is picked per question, and each
+// picked generator draws fresh random values itself, so every call
+// produces a different scenario even if the same generator is chosen
+// twice in a row.
+const ATOM5_GENERATORS = [
+    rng => genAtom5SupportedCount(rng),
+    rng => genAtom5BitsRequired(rng),
+    rng => genAtom5SubnetMask(rng),
+    rng => genAtom5SubnetsProduced(rng),
+    rng => genAtom5SubnetAddressQuestion(rng, 'network'),
+    rng => genAtom5SubnetAddressQuestion(rng, 'broadcast'),
+    rng => genAtom5HostBelongsToSubnet(rng)
+];
+
+function genAtom5Questions(cfg, rng) {
+    if (!cfg || !cfg.enabled || !cfg.numQuestions) return [];
+    const out = [];
+    for (let i = 0; i < cfg.numQuestions; i++) {
+        const generator = pickRandom(rng, ATOM5_GENERATORS);
+        const q = generator(rng);
+        out.push(Object.assign({ type: 'atom5' }, q));
+    }
+    return out;
+}
+
+// Separate question list for Atom 5's own dedicated view — same rationale
+// as buildAtom1QuestionList/etc: drawn from its own independent RNG stream
+// (seed suffixed with '::atom5') so it can never shift any other phase's/
+// atom's sequence.
+function buildAtom5QuestionList(seedStr) {
+    const rng = mulberry32(hashStringToSeed((seedStr || '') + '::atom5'));
+    const atom5Questions = genAtom5Questions(QUESTION_CONFIG.atom5, rng);
+    return atom5Questions.map((q, i) => ({
+        name: `atom5-q${i + 1}`,
+        phase: 'Atom 5 · Applied Scenarios',
+        label: `Atom 5 – Q${i + 1} (${questionTypeLabel(q.type)})`,
+        shortLabel: `Q${i + 1} · ${questionTypeLabel(q.type)}`,
+        q
+    }));
+}
+
+/* =========================================================
+   ATOM 5: DEDICATED FULL-WIDTH VIEW — narrative card + single text
+   answer, no bit grid at all. Follows the same per-question Verify/Reset
+   + pagination pattern as Atoms 1-4 (see ATOM_PAGINATION/showAtomQuestion
+   above), just with a much simpler question body: one requirement card
+   (reusing Atom 1/2's own .atom1-req-card visual language for the
+   scenario text) and one plain text input.
+========================================================= */
+let atom5ActionsDelegated = false;
+
+function buildAtom5RequirementCardHtml(ex) {
+    return (
+        '<div class="atom1-req-card">' +
+            '<div class="atom1-req-row">' +
+                '<div class="atom1-req-icon atom1-req-icon-action"><i class="fa-solid fa-circle-question" aria-hidden="true"></i></div>' +
+                '<div class="atom1-req-body">' +
+                    '<div class="atom1-req-eyebrow">Scenario</div>' +
+                    '<div class="atom1-req-action-text atom5-scenario-text">' + ex.promptHtml + '</div>' +
+                '</div>' +
+            '</div>' +
+        '</div>'
+    );
+}
+
+function buildAtom5PanelHtml(qid, ex, index) {
+    return (
+        '<section class="panel atom1-q-panel" id="atom5QPanel-' + qid + '" data-qid="' + qid + '">' +
+            '<div class="panel-head">' +
+                '<span class="panel-index">Q' + index + '</span>' +
+                '<h2>Applied Scenario</h2>' +
+                '<span class="badge atom1-score-badge" id="atom5ScoreBadge-' + qid + '">0/1</span>' +
+            '</div>' +
+            buildAtom5RequirementCardHtml(ex) +
+            '<div class="atom5-answer-row">' +
+                '<input type="text" class="answer-input-num atom5-answer-input" data-qid="' + qid + '" inputmode="text" placeholder="Your answer" autocomplete="off">' +
+            '</div>' +
+            '<div class="atom1-actions">' +
+                '<button class="primary-btn atom5-verify-btn" data-qid="' + qid + '">Verify Answer</button>' +
+                '<div class="atom1-feedback" id="atom5Feedback-' + qid + '" role="status" aria-live="polite"></div>' +
+            '</div>' +
+        '</section>'
+    );
+}
+
+// Builds the full Atom 5 page from scratch (called once per login) and
+// wires up each question's text input plus a single delegated click
+// listener for every Verify/Reset button on the page — same structure as
+// renderAtom1View/renderAtom2View.
+function renderAtom5View(atom5List) {
+    const container = document.getElementById('atom5QuestionsContainer');
+    if (!container) return;
+
+    container.innerHTML = atom5List
+        .map((item, i) => buildAtom5PanelHtml(item.name, exerciseData[item.name], i + 1))
+        .join('');
+
+    container.querySelectorAll('.atom5-answer-input').forEach(inp => {
+        inp.addEventListener('input', () => saveAtom5Progress(inp.dataset.qid));
+    });
+
+    if (!atom5ActionsDelegated) {
+        atom5ActionsDelegated = true;
+        container.addEventListener('click', (e) => {
+            const btn = e.target.closest('.atom5-verify-btn');
+            if (!btn) return;
+            const qid = btn.dataset.qid;
+            const ex = exerciseData[qid];
+            if (!ex) return;
+            if (ex.locked) {
+                resetAtom5Question(qid);
+            } else {
+                verifyAtom5Question(qid);
+            }
+        });
+    }
+
+    attachAtomPaginationHandlers();
+    initAtomPagination('atom5');
+}
+
+// Persists the in-progress typed answer for one Atom 5 question
+// (analogous to saveAtom1Progress/saveAtom2Progress).
+function saveAtom5Progress(qid) {
+    const ex = exerciseData[qid];
+    if (!ex || ex.locked) return;
+    const input = document.querySelector('.atom5-answer-input[data-qid="' + qid + '"]');
+    ex.userAnswer = input ? input.value : (ex.userAnswer || '');
+    if (appSettings.mode === 'exam') saveExamSession();
+}
+
+// Sets the Verify/Reset/Locked button label + disabled state for one
+// question — same rules as setAtom1ButtonState/etc.
+function setAtom5ButtonState(qid) {
+    const ex = exerciseData[qid];
+    const btn = document.querySelector('.atom5-verify-btn[data-qid="' + qid + '"]');
+    if (!btn || !ex) return;
+    if (ex.locked) {
+        if (appSettings.mode === 'practice') {
+            btn.textContent = 'Reset';
+            btn.disabled = false;
+        } else {
+            btn.textContent = 'Locked';
+            btn.disabled = true;
+        }
+    } else {
+        btn.textContent = 'Verify Answer';
+        btn.disabled = false;
+    }
+}
+
+// Renders this question's per-question feedback, reusing the shared
+// buildFeedbackForExercise/renderFeedback helpers exactly as every other
+// Atom does, so wording stays identical across the whole app.
+function updateAtom5QuestionFeedback(qid, ex) {
+    const el = document.getElementById('atom5Feedback-' + qid);
+    if (!el) return;
+    if (!ex || !ex.locked) {
+        el.textContent = '';
+        el.className = 'atom1-feedback';
+        return;
+    }
+    const feedback = buildFeedbackForExercise(ex);
+    renderFeedback(el, feedback);
+    el.className = 'atom1-feedback ' + feedback.cls;
+}
+
+// Updates one question's score badge (max always 1/1 for Atom 5) — same
+// coloring convention as updateAtom1ScoreBadge/etc.
+function updateAtom5ScoreBadge(qid, ex) {
+    const badge = document.getElementById('atom5ScoreBadge-' + qid);
+    if (!badge || !ex) return;
+    badge.textContent = (ex.score || 0) + '/' + ex.answers.length;
+    badge.classList.remove('completed-score', 'partial-score');
+    if (ex.locked) {
+        if (ex.score === ex.answers.length) badge.classList.add('completed-score');
+        else if (ex.score > 0) badge.classList.add('partial-score');
+    }
+}
+
+// Applies every visual consequence of this question being locked: the
+// panel's correct/incorrect edge color, disabling the text input, the
+// feedback message, the score badge, and the action button label.
+function applyAtom5LockedUI(qid, ex) {
+    const panel = document.getElementById('atom5QPanel-' + qid);
+    const input = document.querySelector('.atom5-answer-input[data-qid="' + qid + '"]');
+    const isCorrect = (ex.score || 0) === ex.answers.length;
+
+    if (panel) {
+        panel.classList.remove('correct', 'incorrect');
+        panel.classList.add(isCorrect ? 'correct' : 'incorrect');
+    }
+    if (input) {
+        input.disabled = true;
+        input.classList.add('locked');
+    }
+
+    updateAtom5QuestionFeedback(qid, ex);
+    updateAtom5ScoreBadge(qid, ex);
+    setAtom5ButtonState(qid);
+}
+
+// Grades and locks one Atom 5 question — a single exact-match text
+// comparison (see gradeConversionAnswer), the same grading shape Phase
+// 7's class_cidr question already uses.
+function verifyAtom5Question(qid) {
+    const ex = exerciseData[qid];
+    if (!ex || ex.locked) return;
+
+    const input = document.querySelector('.atom5-answer-input[data-qid="' + qid + '"]');
+    const userAnswer = input ? input.value : '';
+    ex.userAnswer = userAnswer;
+
+    const isCorrect = gradeConversionAnswer(ex, userAnswer);
+    ex.score = isCorrect ? 1 : 0;
+    ex.isPartial = false;
+    ex.locked = true;
+
+    applyAtom5LockedUI(qid, ex);
+    updateAtom5NavScore();
+    updateSummaryPanel();
+
+    if (isCorrect) triggerConfetti();
+
+    if (appSettings.mode === 'exam') {
+        saveExamSession();
+        if (checkIfAllAnswered()) {
+            stopTimer();
+            setTimeout(() => {
+                showScoreSummaryModal('Congratulations! All exercises completed before time ran out!', 'success');
+            }, 500);
+        }
+    }
+}
+
+// Resets one Atom 5 question — practice mode only, mirroring
+// resetAtom1Question's/etc. exam-mode guard.
+function resetAtom5Question(qid) {
+    if (appSettings.mode === 'exam') {
+        showAlertModal('Reset Not Allowed', 'Reset is not allowed in Exam Mode.');
+        return;
+    }
+    const ex = exerciseData[qid];
+    if (!ex) return;
+
+    ex.userAnswer = '';
+    ex.score = 0;
+    ex.isPartial = false;
+    ex.locked = false;
+
+    const input = document.querySelector('.atom5-answer-input[data-qid="' + qid + '"]');
+    if (input) {
+        input.value = '';
+        input.disabled = false;
+        input.classList.remove('locked');
+    }
+
+    const panel = document.getElementById('atom5QPanel-' + qid);
+    if (panel) panel.classList.remove('correct', 'incorrect');
+
+    updateAtom5QuestionFeedback(qid, null);
+    updateAtom5ScoreBadge(qid, ex);
+    setAtom5ButtonState(qid);
+    updateAtom5NavScore();
+    updateSummaryPanel();
+}
+
+// Aggregates every atom5-q* exercise into a single X/N readout on the
+// sidebar's "Atom 5" nav entry, same as updateAtom1NavScore/etc.
+function updateAtom5NavScore() {
+    const scoreEl = document.getElementById('score-atom5');
+    if (!scoreEl) return;
+    let got = 0;
+    let total = 0;
+    for (const file in exerciseData) {
+        if (file.indexOf('atom5-q') === 0) {
+            const ex = exerciseData[file];
+            got += Number(ex.score || 0);
+            total += ex.answers.length;
+        }
+    }
+    scoreEl.textContent = got + '/' + total;
+    scoreEl.classList.remove('completed-score', 'partial-score');
+    if (total > 0 && got === total) {
+        scoreEl.classList.add('completed-score');
+    } else if (got > 0) {
+        scoreEl.classList.add('partial-score');
+    }
+}
+
+// Re-applies every Atom 5 question's current exerciseData state (typed
+// answer, locked styling, feedback, badge) onto the already-rendered DOM.
+// Called once per login, after exam-session restore, same rationale as
+// syncAtom1ViewDOM/etc.
+function syncAtom5ViewDOM() {
+    for (const file in exerciseData) {
+        if (file.indexOf('atom5-q') !== 0) continue;
+        const ex = exerciseData[file];
+        if (!ex) continue;
+
+        const input = document.querySelector('.atom5-answer-input[data-qid="' + file + '"]');
+        if (input && typeof ex.userAnswer === 'string') input.value = ex.userAnswer;
+
+        if (ex.locked) {
+            applyAtom5LockedUI(file, ex);
+        } else {
+            setAtom5ButtonState(file);
+        }
+    }
+    updateAtom5NavScore();
+}
+
+// --- Sidebar navigation into the Atom 5 view (Tools → Atoms → Atom 5) ---
+// Mirrors showAtom1Page/showAtom4Page exactly.
+function showAtom5Page() {
+    document.querySelectorAll('.sidebar li').forEach(l => l.classList.remove('active'));
+    const navItem = document.getElementById('nav-atom5');
+    if (navItem) navItem.classList.add('active');
+
+    document.getElementById('exerciseArea').style.display = 'none';
+    document.getElementById('subnetVisualizerView').style.display = 'none';
+    document.getElementById('atomPlaceholderView').style.display = 'none';
+    document.getElementById('atom1View').style.display = 'none';
+    document.getElementById('atom2View').style.display = 'none';
+    document.getElementById('atom3View').style.display = 'none';
+    document.getElementById('atom4View').style.display = 'none';
+    document.getElementById('atom5View').style.display = 'flex';
+    document.getElementById('timerContainer').style.display = timerIntervalId ? 'flex' : 'none';
+
+    showAtomPaginationBar('atom5');
 
     currentFile = ''; // no single graded exercise is "current" on this page
 
@@ -4170,6 +4720,10 @@ function renderQuestionHtml(qid, q) {
     if (q.type === 'atom3') return '';
     // Atom 4 reuses Atom 3's dedicated panel and adds its own boundary rows.
     if (q.type === 'atom4') return '';
+    // Atom 5 lives entirely in its own dedicated view (see renderAtom5View/
+    // buildAtom5PanelHtml) — a narrative scenario + single text answer, not
+    // one of the input types handled below.
+    if (q.type === 'atom5') return '';
     let inputHtml = '';
     let answerRowClass = 'conversion-answer-row';
     if (q.type === 'd2b') {
@@ -4994,6 +5548,7 @@ function showSubnetVisualizer() {
     document.getElementById('atom2View').style.display = 'none';
     document.getElementById('atom3View').style.display = 'none';
     document.getElementById('atom4View').style.display = 'none';
+    document.getElementById('atom5View').style.display = 'none';
     document.getElementById('subnetVisualizerView').style.display = 'flex';
 
     hideAllAtomPaginationBars();
@@ -5029,6 +5584,7 @@ function showAtomPage(atomNumber) {
     document.getElementById('atom2View').style.display = 'none';
     document.getElementById('atom3View').style.display = 'none';
     document.getElementById('atom4View').style.display = 'none';
+    document.getElementById('atom5View').style.display = 'none';
     document.getElementById('atomPlaceholderView').style.display = 'block';
     document.getElementById('atomPlaceholderTitle').textContent = `Atom ${atomNumber}`;
 
@@ -5052,6 +5608,7 @@ function switchExercise(name, el) {
     document.getElementById('atom2View').style.display = 'none';
     document.getElementById('atom3View').style.display = 'none';
     document.getElementById('atom4View').style.display = 'none';
+    document.getElementById('atom5View').style.display = 'none';
     document.getElementById('exerciseArea').style.display = 'block';
     // The atom pagination bars are direct children of <main> now (real
     // block-level siblings of #contentScrollArea, not nested inside their
