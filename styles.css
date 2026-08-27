@@ -5214,9 +5214,65 @@ button:focus-visible, input:focus-visible {
    .answer-input-num for the text field — no new component language
    needed, just spacing to sit correctly between the scenario card and
    the Verify/Reset row below it. */
+/* Atom 1-4's "Your task" / "What to do" row tells the student what to
+   physically click/build — previously it shared the neutral, muted gray
+   ".atom1-req-icon-action" styling with no visual weight, easy to skim
+   past. Reuses --task-accent (the same indigo already used for Atom 3's
+   "Task N of 3" badge/header) so every "here's the action" surface in
+   the app reads as one consistent, purposeful color family — distinct
+   from the locked/borrowed/host/network semantic colors used for bit
+   state elsewhere, and distinct from Atom 5's host-green "Find" row
+   since Atom 1-4's task is an instruction to act, not the question
+   itself. */
+.atom1-req-icon-task {
+  background: var(--task-accent-soft);
+  color: var(--task-accent);
+}
+
+.atom1-task-row {
+  background: var(--task-accent-soft);
+}
+
+.atom1-task-row .atom1-req-eyebrow {
+  color: var(--task-accent);
+}
+
+.atom1-task-row .atom1-req-action-text {
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.55;
+  color: var(--text-primary);
+}
+
+/* Atom 5's "Find" row IS the question the student has to answer — unlike
+   Atom 1/2's generic ".atom1-req-icon-action" instruction row (a quiet
+   aside), this needs to read as the main event, not a footnote. Reuses
+   the host-green language ("what you're solving for") instead of the
+   neutral gray .atom1-req-icon-action, and gets its own soft-tinted row
+   background so it stands out from the given-network/target rows above
+   it rather than blending into them. */
+.atom1-req-icon-question {
+  background: var(--host-soft);
+  color: #6ee7b7;
+}
+
+.atom5-find-row {
+  background: var(--host-soft);
+}
+
+.atom5-find-row .atom1-req-eyebrow {
+  color: #6ee7b7;
+}
+
 .atom5-scenario-text {
-  font-size: 0.95rem;
-  line-height: 1.6;
+  font-size: 1.05rem;
+  font-weight: 700;
+  line-height: 1.55;
+  color: var(--text-primary);
+}
+
+.atom5-scenario-text b {
+  color: #fcd34d;
 }
 .atom5-answer-row {
   margin: 1rem 0 0.25rem;

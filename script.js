@@ -103,7 +103,7 @@ const QUESTION_CONFIG = {
     // questions.
     atom5: {
         enabled: true,
-        numQuestions: 20
+        numQuestions: 15
     },
 
     // Grading
@@ -1465,7 +1465,7 @@ function buildConversionExerciseData(item) {
         targetCidr: q.targetCidr,
         correctBits: q.correctBits
     } : {};
-    const atom4AnswerCount = q.type === 'atom4' ? (2 + atom3SubnetIndicesForBorrowed(q.correctBits).length + 2) : null;
+    const atom4AnswerCount = q.type === 'atom4' ? (2 + atom3SubnetIndicesForBorrowed(q.correctBits).length * 3) : null;
     const atom4Extra = q.type === 'atom4' ? {
         octets: q.octets,
         classLabel: q.classLabel,
@@ -1738,8 +1738,8 @@ function buildAtom1RequirementCardHtml(q) {
                     '</div>' +
                 '</div>' +
             '</div>' +
-            '<div class="atom1-req-row">' +
-                '<div class="atom1-req-icon atom1-req-icon-action"><i class="fa-solid fa-hand-pointer" aria-hidden="true"></i></div>' +
+            '<div class="atom1-req-row atom1-task-row">' +
+                '<div class="atom1-req-icon atom1-req-icon-task"><i class="fa-solid fa-hand-pointer" aria-hidden="true"></i></div>' +
                 '<div class="atom1-req-body">' +
                     '<div class="atom1-req-eyebrow">Your task</div>' +
                     '<div class="atom1-req-action-text">' + taskText + '</div>' +
@@ -2605,8 +2605,8 @@ function buildAtom2RequirementCardHtml(ex) {
                     '</div>' +
                 '</div>' +
             '</div>' +
-            '<div class="atom1-req-row">' +
-                '<div class="atom1-req-icon atom1-req-icon-action"><i class="fa-solid fa-hand-pointer" aria-hidden="true"></i></div>' +
+            '<div class="atom1-req-row atom1-task-row">' +
+                '<div class="atom1-req-icon atom1-req-icon-task"><i class="fa-solid fa-hand-pointer" aria-hidden="true"></i></div>' +
                 '<div class="atom1-req-body">' +
                     '<div class="atom1-req-eyebrow">Your task</div>' +
                     '<div class="atom1-req-action-text">Assemble the subnet mask bit by bit — click a bit to toggle it between 0 and 1. Classful network bits are locked to 1, then verify.</div>' +
@@ -3482,8 +3482,8 @@ function buildAtom3TaskCardHtml(ex, taskNum, title, iconClass, actionText) {
                         '</div>' +
                     '</div>' +
                 '</div>' +
-                '<div class="atom1-req-row">' +
-                    '<div class="atom1-req-icon atom1-req-icon-action"><i class="fa-solid ' + iconClass + '" aria-hidden="true"></i></div>' +
+                '<div class="atom1-req-row atom1-task-row">' +
+                    '<div class="atom1-req-icon atom1-req-icon-task"><i class="fa-solid fa-' + iconClass + '" aria-hidden="true"></i></div>' +
                     '<div class="atom1-req-body">' +
                         '<div class="atom1-req-eyebrow">What to do</div>' +
                         '<div class="atom1-req-action-text">' + actionText + '</div>' +
@@ -4385,7 +4385,6 @@ function genAtom5SubnetAddressQuestion(rng, which) {
         givenValue: ipStr + '/' + targetCidr,
         targetLabel: 'Find the ' + label + ' of',
         targetValue: 'Subnet ' + subnetIndex,
-        targetSuffix: 'numbered from 0',
         targetIcon: 'fa-hashtag',
         taskText: 'What is the <b>' + label + '</b> of this subnet?',
         correct: which === 'network' ? network : broadcast,
@@ -4413,7 +4412,7 @@ function genAtom5HostBelongsToSubnet(rng) {
         subType: 'host_belongs_to_subnet',
         givenLabel: 'Given host',
         givenValue: hostIpStr + '/' + targetCidr,
-        taskText: 'Which <b>subnet index</b> (numbered from 0) does this host belong to?',
+        taskText: 'Which <b>subnet index</b> does this host belong to?',
         correct: String(subnetIndex),
         given: hostIpStr
     };
@@ -4473,8 +4472,8 @@ let atom5ActionsDelegated = false;
 // One row of the card: an icon, an eyebrow label, and whatever body markup
 // the caller supplies. Shared by every row below so the given/target/task
 // rows all come out of the same small template.
-function atom5CardRow(iconClass, iconGlyph, eyebrow, bodyHtml) {
-    return '<div class="atom1-req-row">' +
+function atom5CardRow(iconClass, iconGlyph, eyebrow, bodyHtml, rowClass) {
+    return '<div class="atom1-req-row' + (rowClass ? ' ' + rowClass : '') + '">' +
         '<div class="atom1-req-icon ' + iconClass + '"><i class="fa-solid ' + iconGlyph + '" aria-hidden="true"></i></div>' +
         '<div class="atom1-req-body">' +
             '<div class="atom1-req-eyebrow">' + eyebrow + '</div>' +
@@ -4512,10 +4511,11 @@ function buildAtom5RequirementCardHtml(ex) {
     }
 
     rowsHtml += atom5CardRow(
-        'atom1-req-icon-action',
+        'atom1-req-icon-question',
         'fa-circle-question',
         'Find',
-        '<div class="atom1-req-action-text atom5-scenario-text">' + ex.cardTaskText + '</div>'
+        '<div class="atom1-req-action-text atom5-scenario-text">' + ex.cardTaskText + '</div>',
+        'atom5-find-row'
     );
 
     return '<div class="atom1-req-card">' + rowsHtml + '</div>';
