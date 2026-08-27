@@ -63,7 +63,7 @@ const QUESTION_CONFIG = {
     // satisfied. Scored like every other phase.
     atom1: {
         enabled: true,
-        numQuestions: 10
+        numQuestions: 20
     },
 
     // Atom 2: The Mask Assembly (Interesting Octet) — given a host IP and a
@@ -73,7 +73,7 @@ const QUESTION_CONFIG = {
     // all-or-nothing, like Atom 1 (1 point total).
     atom2: {
         enabled: true,
-        numQuestions: 6
+        numQuestions: 20
     },
 
     // Atom 3: The Space Map (Front & Back Subnets) — given a classful
@@ -83,7 +83,7 @@ const QUESTION_CONFIG = {
     // like Atom 2.
     atom3: {
         enabled: true,
-        numQuestions: 6
+        numQuestions: 5
     },
 
     // Atom 4: The Boundaries — given one subnet ID, fill the remaining
@@ -91,7 +91,7 @@ const QUESTION_CONFIG = {
     // broadcast address. Host cells cycle ?, 0, 1, ? when clicked.
     atom4: {
         enabled: true,
-        numQuestions: 6
+        numQuestions: 5
     },
 
     // Grading
