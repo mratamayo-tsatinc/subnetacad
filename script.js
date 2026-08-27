@@ -1175,8 +1175,13 @@ async function loadAllExercises() {
     syncAtom3ViewDOM();
     syncAtom4ViewDOM();
 
-    const firstQuestionItem = list.querySelector('li:not(.sidebar-phase-header)');
-    if (firstQuestionItem) firstQuestionItem.click();
+    // Default landing page after login: the ungraded Subnet Visualizer
+    // tool, not the first graded exercise. A fresh login should drop the
+    // student somewhere exploratory/orienting rather than straight into
+    // a timed or scored question. This also covers the (now-typical) case
+    // where every Phase 1-7 exercise is disabled and the Exercises list
+    // is empty, so there'd otherwise be nothing to auto-select at all.
+    showSubnetVisualizer();
 
     // Attach action button handler (delegates to verify or reset depending on locked state)
     document.getElementById('actionButton').addEventListener('click', () => {

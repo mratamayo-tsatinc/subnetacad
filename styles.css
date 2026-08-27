@@ -43,6 +43,14 @@
     --network-id-soft: rgba(239, 68, 68, 0.14);
     --broadcast: #eab308;
     --broadcast-soft: rgba(234, 179, 8, 0.16);
+    /* Neutral "structural" accent for non-bit-semantic UI chrome (e.g.
+       Atom 3's "Task N of 3" step header). Deliberately NOT locked/
+       borrowed/host/broadcast/network-id — those colors all carry a
+       specific bit-state meaning elsewhere in the app, and reusing one
+       of them here would make a plain step/progress label look like it's
+       telling the student something about bit state. */
+    --task-accent: #818cf8;
+    --task-accent-soft: rgba(129, 140, 248, 0.14);
     --font-mono: 'Roboto Mono', 'Fira Code', 'Courier New', monospace;
 
     --bit-inner-gap: clamp(2px, 0.5vw, 6px);
@@ -4236,12 +4244,12 @@ button:focus-visible, input:focus-visible {
   gap: 12px;
   flex-wrap: wrap;
   padding: 14px 18px;
-  background: var(--borrowed-soft);
-  border-bottom: 2px solid var(--borrowed);
+  background: var(--task-accent-soft);
+  border-bottom: 2px solid var(--task-accent);
 }
 .atom3-task-badge {
   flex: 0 0 auto;
-  background: var(--borrowed);
+  background: var(--task-accent);
   color: #1e293b;
   font-family: var(--font-mono);
   font-weight: 800;
