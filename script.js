@@ -2539,29 +2539,41 @@ function saveAtom2Progress(qid) {
 // than once, same rationale as atom1ActionsDelegated.
 let atom2ActionsDelegated = false;
 
-function buildAtom2PanelHtml(qid, ex, index) {
-    const octetsHtml = ex.octets.map((o, i) => {
-        const dot = i < 3 ? '<span class="dot">.</span>' : '';
-        return '<div class="octet-field"><span class="octet-label">Octet ' + (i + 1) + '</span><div class="atom1-octet-value">' + o + '</div></div>' + dot;
-    }).join('');
-
-    // Panel 1 restates the given host IP and target CIDR as static, given
-    // information (same convention as Atom 1's own static "/networkBits"
-    // suffix here) — this is not the answer area, so showing it is safe;
-    // only the bit grid below withholds it.
-    const panel1Html =
-        '<div class="atom1-panel1">' +
-            '<div class="octet-input-row atom1-octet-row">' +
-                '<div class="octet-field class-field">' +
-                    '<span class="octet-label">Class</span>' +
-                    '<span class="class-value">' + ex.classLabel + '</span>' +
+// --- ATOM 2: REQUIREMENT CARD (how the question is COMMUNICATED) ---
+// Same rationale as Atom 1's buildAtom1RequirementCardHtml: the old plain
+// prompt sentence ("Assemble the subnet mask for X/Y") and the static
+// Panel 1 octet-box row underneath it were both restating the exact same
+// two facts — the given host IP and the target CIDR — one right after the
+// other. The bit grid below already shows each octet's own live total (and
+// its locked/blue bits already make the classful network portion visually
+// obvious), so nothing is lost by stating the given IP/CIDR once, here, in
+// the same compact two-row card language Atom 1 uses, instead of twice.
+function buildAtom2RequirementCardHtml(ex) {
+    const ipStr = ex.octets.join('.');
+    return (
+        '<div class="atom1-req-card">' +
+            '<div class="atom1-req-row">' +
+                '<div class="atom1-req-icon atom1-req-icon-network"><i class="fa-solid fa-diagram-project" aria-hidden="true"></i></div>' +
+                '<div class="atom1-req-body">' +
+                    '<div class="atom1-req-eyebrow">Given host</div>' +
+                    '<div class="atom1-req-main">' +
+                        '<span class="atom1-req-badge">Class ' + ex.classLabel + '</span>' +
+                        '<span class="atom1-req-value">' + ipStr + '<span class="atom1-req-cidr">/' + ex.targetCidr + '</span></span>' +
+                    '</div>' +
                 '</div>' +
-                '<span class="row-divider" aria-hidden="true">|</span>' +
-                octetsHtml +
-                '<span class="decimal-cidr-suffix octet-row-cidr-suffix">/' + ex.targetCidr + '</span>' +
             '</div>' +
-        '</div>';
+            '<div class="atom1-req-row">' +
+                '<div class="atom1-req-icon atom1-req-icon-action"><i class="fa-solid fa-hand-pointer" aria-hidden="true"></i></div>' +
+                '<div class="atom1-req-body">' +
+                    '<div class="atom1-req-eyebrow">Your task</div>' +
+                    '<div class="atom1-req-action-text">Assemble the subnet mask bit by bit — click a bit to toggle it between 0 and 1. Classful network bits are locked to 1, then verify.</div>' +
+                '</div>' +
+            '</div>' +
+        '</div>'
+    );
+}
 
+function buildAtom2PanelHtml(qid, ex, index) {
     // Grid always starts rendered in its default state (classful bits
     // locked to 1, rest at 0) — any persisted in-progress/locked state is
     // reapplied afterward by syncAtom2ViewDOM, mirroring Atom 1's own
@@ -2587,8 +2599,7 @@ function buildAtom2PanelHtml(qid, ex, index) {
                 '<h2>Subnet Mask Assembly</h2>' +
                 '<span class="badge atom1-score-badge" id="atom2ScoreBadge-' + qid + '">0/1</span>' +
             '</div>' +
-            '<div class="conversion-prompt">' + ex.promptHtml + '</div>' +
-            panel1Html +
+            buildAtom2RequirementCardHtml(ex) +
             gridHtml +
             '<div class="atom1-actions">' +
                 '<button class="primary-btn atom2-verify-btn" data-qid="' + qid + '">Verify Answer</button>' +
@@ -3371,31 +3382,84 @@ function saveAtom3Progress(qid) {
 let atom3ActionsDelegated = false;
 let atom4ActionsDelegated = false;
 
+// --- ATOM 3: REQUIREMENT CARD (how the question is COMMUNICATED) ---
+// Same rationale as Atom 1/2's own requirement cards: the old plain prompt
+// sentence (via ex.promptHtml) and the static Panel 1 octet-box row
+// underneath it both restated the exact same two facts — the given
+// classful address and the target classless CIDR — one right after the
+// other. The bit grid's own live borrow badge and octet totals already
+// make the classful network portion and current boundary obvious, so
+// nothing is lost by stating the given address and the CIDR to reach once,
+// here, instead of twice. Unlike Atom 1's card (a single subnet/host count
+// target), Atom 3's target is a CIDR to reach by clicking, so its middle
+// row states that instead of a requirement count.
+// --- ATOM 3: PER-SUBTASK TASK CARDS (how the question is COMMUNICATED) ---
+// Atom 3 is not a single-task question like Atom 1 (borrow bits) or Atom 2
+// (assemble a mask) — it chains THREE separately-gradable subtasks: set
+// the subnet boundary (Atom 1's own task), assemble the matching mask
+// (Atom 2's own task), then build each subnet's binary ID. Each subtask
+// gets its own card immediately above the UI it governs, and — so a
+// student scrolling back to any one of them never has to scroll back up
+// to re-find the given network or the CIDR they're working toward — every
+// card repeats the exact same three-part structure: Given network, the
+// classless network to reach, and what to do for THIS step. Only the
+// task-specific header (a highly visible "TASK N OF 3" badge + title) and
+// the final row's icon/text change between the three calls below.
+function buildAtom3TaskCardHtml(ex, taskNum, title, iconClass, actionText) {
+    const ipStr = ex.octets.join('.');
+    // Task 1 opens the question (no preceding grid to separate it from),
+    // so it skips the extra top margin/spacing the later two cards get —
+    // see .atom3-task-card-followup in styles.css.
+    const cardClass = 'atom1-req-card atom3-task-card' + (taskNum > 1 ? ' atom3-task-card-followup' : '');
+    return (
+        '<div class="' + cardClass + '">' +
+            '<div class="atom3-task-card-header">' +
+                '<span class="atom3-task-badge">Task ' + taskNum + ' of 3</span>' +
+                '<h3 class="atom3-task-title">' + title + '</h3>' +
+            '</div>' +
+            '<div class="atom3-task-card-rows">' +
+                '<div class="atom1-req-row">' +
+                    '<div class="atom1-req-icon atom1-req-icon-network"><i class="fa-solid fa-diagram-project" aria-hidden="true"></i></div>' +
+                    '<div class="atom1-req-body">' +
+                        '<div class="atom1-req-eyebrow">Given network</div>' +
+                        '<div class="atom1-req-main">' +
+                            '<span class="atom1-req-badge">Class ' + ex.classLabel + '</span>' +
+                            '<span class="atom1-req-value">' + ipStr + '<span class="atom1-req-cidr">/' + ex.networkBits + '</span></span>' +
+                        '</div>' +
+                    '</div>' +
+                '</div>' +
+                '<div class="atom1-req-row">' +
+                    '<div class="atom1-req-icon atom1-req-icon-requirement"><i class="fa-solid fa-bullseye" aria-hidden="true"></i></div>' +
+                    '<div class="atom1-req-body">' +
+                        '<div class="atom1-req-eyebrow">Reach this classless network</div>' +
+                        '<div class="atom1-req-target">' +
+                            '<span class="atom1-req-target-num">/' + ex.targetCidr + '</span>' +
+                            '<span class="atom1-req-target-label">target CIDR</span>' +
+                        '</div>' +
+                    '</div>' +
+                '</div>' +
+                '<div class="atom1-req-row">' +
+                    '<div class="atom1-req-icon atom1-req-icon-action"><i class="fa-solid ' + iconClass + '" aria-hidden="true"></i></div>' +
+                    '<div class="atom1-req-body">' +
+                        '<div class="atom1-req-eyebrow">What to do</div>' +
+                        '<div class="atom1-req-action-text">' + actionText + '</div>' +
+                    '</div>' +
+                '</div>' +
+            '</div>' +
+        '</div>'
+    );
+}
+
 function buildAtom3PanelHtml(qid, ex, index) {
     const inputBits = atom1OctetsToBits(ex.octets);
 
-    const octetsHtml = ex.octets.map((o, i) => {
-        const dot = i < 3 ? '<span class="dot">.</span>' : '';
-        return '<div class="octet-field"><span class="octet-label">Octet ' + (i + 1) + '</span><div class="atom1-octet-value">' + o + '</div></div>' + dot;
-    }).join('');
-
-    // Panel 1 restates the given classful address and the TARGET classless
-    // CIDR as static, given information (same convention as Atom 2's own
-    // static targetCidr suffix) — the student must reach this CIDR by
-    // clicking the grid below; it's never re-derived from the grid itself,
-    // only the live borrow badge under the grid reflects the current click.
-    const panel1Html =
-        '<div class="atom1-panel1">' +
-            '<div class="octet-input-row atom1-octet-row">' +
-                '<div class="octet-field class-field">' +
-                    '<span class="octet-label">Class</span>' +
-                    '<span class="class-value">' + ex.classLabel + '</span>' +
-                '</div>' +
-                '<span class="row-divider" aria-hidden="true">|</span>' +
-                octetsHtml +
-                '<span class="decimal-cidr-suffix octet-row-cidr-suffix">/' + ex.targetCidr + '</span>' +
-            '</div>' +
-        '</div>';
+    const task1Html = buildAtom3TaskCardHtml(
+        ex,
+        1,
+        'Set the Subnet Boundary',
+        'hand-pointer',
+        'Click bits below to borrow exactly enough network bits to reach /' + ex.targetCidr + '.'
+    );
 
     const gridHtml =
         '<div class="atom1-bitgrid-wrap" id="atom3BoundaryWrap-' + qid + '">' +
@@ -3416,11 +3480,19 @@ function buildAtom3PanelHtml(qid, ex, index) {
     // renderAtom2BitGridInner/initAtom2MaskBits — via its own DOM ids so
     // it can't collide with the real Atom 2 view's grids). Classful
     // network bits start locked to 1; everything else starts at 0 and
-    // toggles independently on click, same as Atom 2.
+    // toggles independently on click, same as Atom 2. Its own task card
+    // (task2Html, below) now carries the instructions this wrap used to
+    // open with via .atom3-mask-hint, so that paragraph is dropped here.
     const maskInitBits = initAtom2MaskBits(ex.networkBits).split('').map(Number);
+    const task2Html = buildAtom3TaskCardHtml(
+        ex,
+        2,
+        'Assemble the Subnet Mask',
+        'sliders',
+        'Now assemble the subnet mask that matches the boundary you set above — click a bit to toggle it on/off. Classful network bits are locked to 1.'
+    );
     const maskGridHtml =
         '<div class="atom1-bitgrid-wrap atom3-mask-wrap" id="atom3MaskWrap-' + qid + '">' +
-            '<div class="panel-hint secondary-copy atom3-mask-hint">Now assemble the subnet mask that matches the boundary you just set above — click a bit to toggle it on/off.</div>' +
             '<div class="bit-grid atom1-bitgrid" id="atom3MaskGrid-' + qid + '" data-qid="' + qid + '" data-network-bits="' + ex.networkBits + '" data-maskbits="' + initAtom2MaskBits(ex.networkBits) + '">' +
                 renderAtom2BitGridInner(qid, maskInitBits, ex.networkBits) +
             '</div>' +
@@ -3431,9 +3503,20 @@ function buildAtom3PanelHtml(qid, ex, index) {
             '</div>' +
         '</div>';
 
+    // Task 3's card carries the exact phrase "Build each subnet's binary ID
+    // below" verbatim — Atom 4 (see buildAtom4PanelHtml) string-replaces
+    // that same phrase in its own copy of this panel to append its own
+    // Network/Broadcast instructions, so the wording here must stay intact
+    // for that hook to keep matching.
+    const task3Html = buildAtom3TaskCardHtml(
+        ex,
+        3,
+        'Build Each Subnet ID',
+        'list-ol',
+        'Build each subnet\'s binary ID below — its full network address updates live, and the subnet list itself updates as you move the boundary above.'
+    );
     const liveListHtml =
         '<div class="atom3-live-wrap">' +
-            '<div class="atom3-live-heading secondary-copy"><i class="fa-solid fa-arrows-rotate" aria-hidden="true"></i> Build each subnet\'s binary ID below — its full network address updates live, and the subnet list itself updates as you move the boundary above</div>' +
             '<div id="atom3SubnetList-' + qid + '">' + buildAtom3SubnetListHtml(qid, 0, ex) + '</div>' +
         '</div>';
 
@@ -3444,10 +3527,11 @@ function buildAtom3PanelHtml(qid, ex, index) {
                 '<h2>Subnet ID Mapping</h2>' +
                 '<span class="badge atom1-score-badge" id="atom3ScoreBadge-' + qid + '">0/' + ex.answers.length + '</span>' +
             '</div>' +
-            '<div class="conversion-prompt">' + ex.promptHtml + '</div>' +
-            panel1Html +
+            task1Html +
             gridHtml +
+            task2Html +
             maskGridHtml +
+            task3Html +
             liveListHtml +
             '<div class="atom1-actions">' +
                 '<button class="primary-btn atom3-verify-btn" data-qid="' + qid + '">Verify Answer</button>' +

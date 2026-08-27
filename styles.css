@@ -4220,6 +4220,52 @@ button:focus-visible, input:focus-visible {
   overflow: hidden;
   margin: 0 0 1.25rem;
 }
+/* ---------- Atom 3: shared task-card header (Tasks 1/2/3) ----------
+   Every one of Atom 3's three task cards (see buildAtom3TaskCardHtml in
+   script.js) opens with this header instead of folding its "Task N of 3"
+   label into a quiet eyebrow line the way a single-task Atom would — with
+   three separate steps to track, the label needs to be the first thing
+   the eye lands on, not something read only after the given-network row
+   above it. The badge is a solid, high-contrast pill (not a subtle text
+   label) and the title sits right beside it at real heading weight, so
+   together they read as a section marker on their own, independent of
+   the row content below. */
+.atom3-task-card-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 14px 18px;
+  background: var(--borrowed-soft);
+  border-bottom: 2px solid var(--borrowed);
+}
+.atom3-task-badge {
+  flex: 0 0 auto;
+  background: var(--borrowed);
+  color: #1e293b;
+  font-family: var(--font-mono);
+  font-weight: 800;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 5px 14px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.atom3-task-title {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+/* Task 1 opens the question directly under the panel title, so it needs
+   no extra separation from what's above it. Tasks 2 and 3 each follow a
+   full bit-grid section, so they get real top margin here — enough that
+   the card reads as "a new step starts here" rather than crowding the
+   grid legend directly above it. */
+.atom3-task-card-followup {
+  margin-top: 1.75rem;
+}
 .atom1-req-row {
   display: flex;
   align-items: center;
@@ -4305,6 +4351,15 @@ button:focus-visible, input:focus-visible {
   }
   .atom1-req-row:last-child { border-right: none; }
   .atom1-req-icon { margin-bottom: 0.15rem; }
+  /* Atom 3's task cards (Tasks 1/2/3) have a header ABOVE their rows,
+     unlike Atom 1/2's single-level card — so the outer card stays a
+     normal block (header full-width on top) and only the inner
+     .atom3-task-card-rows wrapper becomes the horizontal strip the plain
+     .atom1-req-card rule above turns the whole card into. Combined
+     selector specificity (0,2,0) beats the plain .atom1-req-card rule
+     above (0,1,0) regardless of source order. */
+  .atom1-req-card.atom3-task-card { display: block; }
+  .atom3-task-card-rows { display: flex; }
 }
 
 /* ============================================================
@@ -4772,9 +4827,6 @@ button:focus-visible, input:focus-visible {
 .atom3-mask-wrap {
   margin-top: 1.25rem;
 }
-.atom3-mask-hint {
-  margin: 0 0 10px;
-}
 
 /* ============================================================
    ATOM 3 (REDESIGNED): LIVE SUBNET LIST
@@ -4786,21 +4838,12 @@ button:focus-visible, input:focus-visible {
    above it: a muted heading instead of a panel-style header, and rows
    built from the same .atom3-subnet-row/.unified-octet-cell/.u-bit
    language Panel 4's own borrowed-pattern visualization already uses.
+   Its own intro line now lives in the Task 3 divider card immediately
+   above it (see buildAtom3TaskDividerHtml in script.js) instead of a
+   bespoke heading here.
    ============================================================ */
 .atom3-live-wrap {
   margin-top: 1.25rem;
-}
-
-.atom3-live-heading {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 0.8rem;
-  margin-bottom: 0.75rem;
-}
-
-.atom3-live-heading i {
-  color: var(--borrowed);
 }
 
 /* Live rows reuse .atom3-subnet-row/.atom3-bit-row exactly as originally
