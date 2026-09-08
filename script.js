@@ -103,7 +103,7 @@ const QUESTION_CONFIG = {
     // questions.
     atom5: {
         enabled: true,
-        numQuestions: 15
+        numQuestions: 30
     },
 
     // Grading
@@ -393,6 +393,10 @@ document.addEventListener('keydown', (e) => {
         const consolePanel = document.getElementById('sampleOutputPanel');
         if (consolePanel && consolePanel.classList.contains('open')) {
             closeSampleOutputModal();
+        }
+        const hintModal = document.getElementById('atom5HintModal');
+        if (hintModal && hintModal.style.display === 'block') {
+            closeAtom5HintModal();
         }
     }
 });
@@ -4460,6 +4464,185 @@ function buildAtom5QuestionList(seedStr) {
 }
 
 /* =========================================================
+   ATOM 5: HINT CONTENT & MODAL
+   Each subType genAtom5* produces gets a hint entry: the general formula
+   (no numbers from the actual question — those would leak the answer),
+   a graphical illustration built with the SAME rendering functions and
+   locked/borrowed/host color language the relevant Atom's own UI uses
+   (renderAtom1BitGridInner for Atom 1's boundary grid,
+   renderAtom2BitGridInner for Atom 2's mask grid, and
+   atom3BuildSingleOctetBits for Atom 3/4's composed-address view), a
+   worked example using its OWN small placeholder numbers — chosen to
+   match the illustration exactly, so the graphic and the text reinforce
+   each other — and a pointer to whichever earlier Atom drills that exact
+   skill. Purely a study aid — never touches grading, scoring, or
+   ex.userAnswer, and every number here is fixed/illustrative, never
+   drawn from the actual question's random values.
+========================================================= */
+
+// Atom 1's own 32-bit boundary grid, rendered as a static (non-clickable)
+// illustration. Used by every "borrow bits" hint (supported_subnets/
+// supported_hosts/subnets_produced/bits_required) with whatever
+// networkBits/borrowedBits that hint's own worked-example text uses.
+function buildAtom5HintBitGridHtml(networkBits, borrowedBits) {
+    const octets = [192, 168, 1, 0];
+    const inputBits = atom1OctetsToBits(octets);
+    return (
+        '<div class="bit-grid atom1-bitgrid atom5-hint-viz-static" aria-hidden="true">' +
+            renderAtom1BitGridInner('hintviz', inputBits, networkBits, borrowedBits) +
+        '</div>' +
+        '<div class="legend secondary-copy atom5-hint-legend">' +
+            '<span><i class="swatch swatch-locked"></i> Locked network bit</span>' +
+            '<span><i class="swatch swatch-borrowed"></i> Borrowed subnet bit</span>' +
+            '<span><i class="swatch swatch-host"></i> Host bit</span>' +
+        '</div>'
+    );
+}
+
+// Atom 2's own mask-assembly grid, rendered statically with the mask
+// bits already filled in for the given target CIDR — matches the
+// subnet_mask hint's own /27 → 255.255.255.224 worked example.
+function buildAtom5HintMaskGridHtml(networkBits, targetCidr) {
+    const maskBitsStr = initAtom2MaskBits(targetCidr);
+    const bitsArr = maskBitsStr.split('').map(Number);
+    return (
+        '<div class="bit-grid atom1-bitgrid atom5-hint-viz-static" aria-hidden="true">' +
+            renderAtom2BitGridInner('hintviz', bitsArr, networkBits) +
+        '</div>' +
+        '<div class="legend secondary-copy atom5-hint-legend">' +
+            '<span><i class="swatch swatch-locked"></i> Locked network bit</span>' +
+            '<span><i class="swatch swatch-borrowed"></i> Mask bit ON (1)</span>' +
+            '<span><i class="swatch swatch-host"></i> Mask bit OFF (0)</span>' +
+        '</div>'
+    );
+}
+
+// Atom 3/4's own composed-address view (per-octet total/weights/bits/
+// label, with locked/borrowed/host coloring), rendered statically for a
+// fixed, fully-given address. Shared by the network-address, broadcast-
+// address, and host-belongs-to-subnet hints — they only differ in which
+// octets and which legend caption they pass in.
+function buildAtom5HintAddrRowHtml(octets, networkBits, borrowedBits, legendItems) {
+    const fullBits = atom1OctetsToBits(octets);
+    const borrowEnd = networkBits + borrowedBits;
+    let addrHtml = '<div class="addr-row atom5-hint-addr-row atom5-hint-viz-static" aria-hidden="true">';
+    for (let o = 0; o < 4; o++) {
+        addrHtml += atom3BuildSingleOctetBits(fullBits, networkBits, borrowEnd, o);
+    }
+    addrHtml += '</div>';
+    const legendHtml = '<div class="legend secondary-copy atom5-hint-legend">' + legendItems.join('') + '</div>';
+    return addrHtml + legendHtml;
+}
+
+const ATOM5_HINTS = {
+    supported_subnets: {
+        formula: 'Total Subnets = 2<sup>borrowed bits</sup>',
+        example: 'Example: if 3 bits are borrowed, this network supports 2<sup>3</sup> = 8 subnets.',
+        visual: () => buildAtom5HintBitGridHtml(24, 3),
+        practiceLabel: 'Atom 1 · The Constraint (Bit Question)',
+        practiceFn: 'showAtom1Page'
+    },
+    supported_hosts: {
+        formula: 'Usable Hosts per Subnet = 2<sup>host bits</sup> &minus; 2',
+        example: 'Example: if 5 host bits remain, this subnet supports 2<sup>5</sup> &minus; 2 = 30 usable hosts. The &minus;2 removes the Network ID and Broadcast Address, which can\'t be assigned to a device.',
+        visual: () => buildAtom5HintBitGridHtml(24, 3),
+        practiceLabel: 'Atom 1 · The Constraint (Bit Question)',
+        practiceFn: 'showAtom1Page'
+    },
+    bits_required: {
+        formula: 'Bits to borrow: the smallest n where 2<sup>n</sup> &ge; required subnets.<br>Bits to borrow (for a host requirement): total host bits &minus; the smallest h where 2<sup>h</sup> &minus; 2 &ge; required hosts.',
+        example: 'Example: if at least 10 subnets are required, n = 3 gives 2<sup>3</sup> = 8 (not enough), so try n = 4: 2<sup>4</sup> = 16 (enough) — 4 bits must be borrowed.',
+        visual: () => buildAtom5HintBitGridHtml(24, 4),
+        practiceLabel: 'Atom 1 · The Constraint (Bit Question)',
+        practiceFn: 'showAtom1Page'
+    },
+    subnet_mask: {
+        formula: 'Subnet Mask: set every classful-network bit AND every borrowed bit to 1, leave every remaining host bit as 0. Convert each 8-bit group to decimal.',
+        example: 'Example: /27 means 27 ones followed by 5 zeros: 11111111.11111111.11111111.11100000 → 255.255.255.224.',
+        visual: () => buildAtom5HintMaskGridHtml(24, 27),
+        practiceLabel: 'Atom 2 · The Mask Assembly (Interesting Octet)',
+        practiceFn: 'showAtom2Page'
+    },
+    subnets_produced: {
+        formula: 'Total Subnets = 2<sup>borrowed bits</sup>, where borrowed bits = target CIDR &minus; classful network bits.',
+        example: 'Example: a Class C (/24) network subnetted to /27 borrows 3 bits, producing 2<sup>3</sup> = 8 subnets.',
+        visual: () => buildAtom5HintBitGridHtml(24, 3),
+        practiceLabel: 'Atom 1 · The Constraint (Bit Question) or Atom 3 · The Space Map',
+        practiceFn: 'showAtom1Page'
+    },
+    network_address_of_subnet: {
+        formula: 'Network Address = classful network bits + this subnet\'s index written in binary (padded to the borrowed-bit width) + all host bits set to 0.',
+        example: 'Example: subnet index 2 with 3 borrowed bits is binary 010. Insert those bits right after the classful network portion, zero out every remaining host bit, then convert all 4 octets back to decimal.',
+        visual: () => buildAtom5HintAddrRowHtml([192, 168, 1, 64], 24, 3, [
+            '<span><i class="swatch swatch-locked"></i> Locked network bit</span>',
+            '<span><i class="swatch swatch-borrowed"></i> Subnet index bit (010 = index 2)</span>',
+            '<span><i class="swatch swatch-host"></i> Host bit — all 0 for Network Address</span>'
+        ]),
+        practiceLabel: 'Atom 3 · The Space Map or Atom 4 · The Boundaries',
+        practiceFn: 'showAtom3Page'
+    },
+    broadcast_address_of_subnet: {
+        formula: 'Broadcast Address = classful network bits + this subnet\'s index written in binary (padded to the borrowed-bit width) + all host bits set to 1.',
+        example: 'Example: subnet index 2 with 3 borrowed bits is binary 010. Insert those bits right after the classful network portion, set every remaining host bit to 1, then convert all 4 octets back to decimal.',
+        visual: () => buildAtom5HintAddrRowHtml([192, 168, 1, 95], 24, 3, [
+            '<span><i class="swatch swatch-locked"></i> Locked network bit</span>',
+            '<span><i class="swatch swatch-borrowed"></i> Subnet index bit (010 = index 2)</span>',
+            '<span><i class="swatch swatch-host"></i> Host bit — all 1 for Broadcast Address</span>'
+        ]),
+        practiceLabel: 'Atom 4 · The Boundaries',
+        practiceFn: 'showAtom4Page'
+    },
+    host_belongs_to_subnet: {
+        formula: 'Subnet Index = just the borrowed bits, read directly out of the host address (the bits immediately after the classful network portion), converted to decimal.',
+        example: 'Example: with 3 borrowed bits, if those exact 3 bits in the address read 101, the host belongs to subnet index 5.',
+        visual: () => buildAtom5HintAddrRowHtml([192, 168, 1, 173], 24, 3, [
+            '<span><i class="swatch swatch-locked"></i> Locked network bit — ignore</span>',
+            '<span><i class="swatch swatch-borrowed"></i> Subnet index bits — read these (101 = 5)</span>',
+            '<span><i class="swatch swatch-host"></i> Host bit — ignore</span>'
+        ]),
+        practiceLabel: 'Atom 3 · The Space Map (Front & Back Subnets)',
+        practiceFn: 'showAtom3Page'
+    }
+};
+
+// Opens the hint modal for one Atom 5 question, populated from its
+// subType. Never reveals ex.correct or any of this question's own given
+// numbers — only the general formula, a static graphical illustration
+// (fixed example numbers, rendered with the SAME component the relevant
+// Atom uses), and a self-contained placeholder worked example. The
+// "Go Practice" button jumps to whichever Atom drills this exact skill;
+// wired here (not as a static onclick) since the target page differs
+// per subType.
+function openAtom5HintModal(qid) {
+    const ex = exerciseData[qid];
+    const hint = ex ? ATOM5_HINTS[ex.subType] : null;
+    if (!hint) return;
+
+    document.getElementById('atom5HintFormula').innerHTML = hint.formula;
+    const visualBox = document.getElementById('atom5HintVisual');
+    if (visualBox) visualBox.innerHTML = typeof hint.visual === 'function' ? hint.visual() : '';
+    document.getElementById('atom5HintExample').innerHTML = hint.example;
+    document.getElementById('atom5HintPractice').innerHTML = '<i class="fa-solid fa-atom" aria-hidden="true"></i> ' + hint.practiceLabel;
+
+    const practiceBtn = document.getElementById('atom5HintPracticeBtn');
+    if (practiceBtn) {
+        practiceBtn.onclick = () => {
+            closeAtom5HintModal();
+            const target = window[hint.practiceFn];
+            if (typeof target === 'function') target();
+        };
+    }
+
+    document.getElementById('atom5HintModal').style.display = 'block';
+    document.getElementById('atom5HintOverlay').style.display = 'block';
+}
+
+function closeAtom5HintModal() {
+    document.getElementById('atom5HintModal').style.display = 'none';
+    document.getElementById('atom5HintOverlay').style.display = 'none';
+}
+
+/* =========================================================
    ATOM 5: DEDICATED FULL-WIDTH VIEW — narrative card + single text
    answer, no bit grid at all. Follows the same per-question Verify/Reset
    + pagination pattern as Atoms 1-4 (see ATOM_PAGINATION/showAtomQuestion
@@ -4527,6 +4710,7 @@ function buildAtom5PanelHtml(qid, ex, index) {
             '<div class="panel-head">' +
                 '<span class="panel-index">Q' + index + '</span>' +
                 '<h2>Applied Scenario</h2>' +
+                '<button type="button" class="atom5-hint-btn" data-qid="' + qid + '" aria-label="Show a hint for this question"><i class="fa-solid fa-lightbulb" aria-hidden="true"></i> Hint</button>' +
                 '<span class="badge atom1-score-badge" id="atom5ScoreBadge-' + qid + '">0/1</span>' +
             '</div>' +
             buildAtom5RequirementCardHtml(ex) +
@@ -4560,6 +4744,11 @@ function renderAtom5View(atom5List) {
     if (!atom5ActionsDelegated) {
         atom5ActionsDelegated = true;
         container.addEventListener('click', (e) => {
+            const hintBtn = e.target.closest('.atom5-hint-btn');
+            if (hintBtn) {
+                openAtom5HintModal(hintBtn.dataset.qid);
+                return;
+            }
             const btn = e.target.closest('.atom5-verify-btn');
             if (!btn) return;
             const qid = btn.dataset.qid;

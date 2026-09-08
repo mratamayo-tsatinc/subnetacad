@@ -163,6 +163,39 @@
     </div>
     <div id="alertOverlay" class="modal-overlay" style="display: none;" onclick="closeAlertModal()" aria-hidden="true"></div>
 
+    <!-- Atom 5 Hint Modal -->
+    <div id="atom5HintModal" class="modal atom5-hint-modal" style="display: none;" role="dialog" aria-labelledby="atom5HintTitle" aria-hidden="true">
+        <div class="modal-content atom5-hint-content">
+            <div class="atom5-hint-header">
+                <h3 id="atom5HintTitle"><i class="fa-solid fa-lightbulb" aria-hidden="true"></i> Hint</h3>
+                <button class="modal-close" onclick="closeAtom5HintModal()" aria-label="Close hint"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
+            </div>
+            <div class="atom5-hint-body">
+                <div class="atom5-hint-section">
+                    <div class="atom5-hint-label"><i class="fa-solid fa-square-root-variable" aria-hidden="true"></i> Formula</div>
+                    <div id="atom5HintFormula" class="atom5-hint-formula"></div>
+                </div>
+                <div class="atom5-hint-section atom5-hint-section-visual">
+                    <div class="atom5-hint-label"><i class="fa-solid fa-diagram-project" aria-hidden="true"></i> Visual Example</div>
+                    <div id="atom5HintVisual" class="atom5-hint-visual-box"></div>
+                </div>
+                <div class="atom5-hint-section">
+                    <div class="atom5-hint-label"><i class="fa-solid fa-flask" aria-hidden="true"></i> Worked Example</div>
+                    <div id="atom5HintExample" class="atom5-hint-example"></div>
+                </div>
+                <div class="atom5-hint-section atom5-hint-practice">
+                    <div class="atom5-hint-label"><i class="fa-solid fa-atom" aria-hidden="true"></i> Practice This Skill</div>
+                    <div id="atom5HintPractice" class="atom5-hint-practice-text"></div>
+                </div>
+            </div>
+            <div class="modal-footer atom5-hint-footer">
+                <button class="secondary-btn" id="atom5HintPracticeBtn" type="button">Go Practice</button>
+                <button class="primary-btn" onclick="closeAtom5HintModal()">Got It</button>
+            </div>
+        </div>
+    </div>
+    <div id="atom5HintOverlay" class="modal-overlay" style="display: none;" onclick="closeAtom5HintModal()" aria-hidden="true"></div>
+
     <div id="appContainer" class="main-layout" style="display: none;">
         <button id="sidebarToggleBtn" class="hamburger-btn" onclick="toggleSidebar()" aria-label="Show exercise list" aria-expanded="false" aria-controls="sidebarNav">
             <span class="hamburger-icon" aria-hidden="true"><i class="fa-solid fa-bars"></i></span>

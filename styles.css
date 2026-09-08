@@ -5184,6 +5184,179 @@ button:focus-visible, input:focus-visible {
   max-width: 320px;
 }
 
+/* ---------- Atom 5: hint button + modal ---------- */
+/* Sits in the panel head between the title and the score badge (the
+   badge keeps its own margin-left: auto, so it stays pinned right
+   regardless of what precedes it). Styled with the borrowed/amber
+   "lightbulb" language rather than any of the semantic bit-state colors,
+   since a hint is neither given information nor the task itself — it's
+   optional, on-demand help. */
+.atom5-hint-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--borrowed-soft);
+  border: 1px solid var(--borrowed);
+  color: #fcd34d;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 6px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: var(--transition);
+}
+.atom5-hint-btn:hover {
+  background: rgba(245, 158, 11, 0.24);
+  transform: translateY(-1px);
+}
+.atom5-hint-btn:focus-visible {
+  outline: 2px solid var(--host);
+  outline-offset: 2px;
+}
+.atom5-hint-btn i {
+  color: var(--borrowed);
+}
+
+/* Hint modal content — reuses the shared .modal/.modal-content/.modal-
+   footer chrome (including the mobile-width overrides already defined
+   for it earlier in this file) so it behaves consistently with every
+   other modal in the app; only the body layout below is new. */
+.atom5-hint-modal {
+  max-width: 480px;
+}
+.atom5-hint-content {
+  display: flex;
+  flex-direction: column;
+}
+.atom5-hint-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1.25rem 1.5rem;
+  background: linear-gradient(135deg, var(--warning), #f59e0b);
+  border-radius: 12px 12px 0 0;
+}
+.atom5-hint-header h3 {
+  margin: 0;
+  color: #1e293b;
+  font-size: 1.1rem;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.atom5-hint-header .modal-close {
+  color: #1e293b;
+}
+.atom5-hint-header .modal-close:hover {
+  background: rgba(30, 41, 59, 0.12);
+  color: #1e293b;
+}
+.atom5-hint-body {
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+}
+.atom5-hint-section {
+  background: var(--surface-hover);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  padding: 0.9rem 1.1rem;
+}
+.atom5-hint-label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-tertiary);
+  margin-bottom: 0.5rem;
+}
+.atom5-hint-formula {
+  font-family: 'Roboto Mono', monospace;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--secondary);
+  line-height: 1.6;
+}
+.atom5-hint-example {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+.atom5-hint-practice {
+  border-color: var(--primary);
+  background: var(--primary-light);
+}
+.atom5-hint-practice .atom5-hint-label {
+  color: var(--primary);
+}
+.atom5-hint-practice-text {
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--text-main);
+}
+.atom5-hint-footer {
+  justify-content: space-between;
+}
+
+/* ---------- Atom 5 hint: graphical illustration ----------
+   Reuses renderAtom1BitGridInner / renderAtom2BitGridInner /
+   atom3BuildSingleOctetBits verbatim (see buildAtom5Hint*Html in
+   script.js) — the exact same .bit-grid/.bit-cell/.addr-row/.addr-octet
+   component language and locked/borrowed/host coloring the relevant
+   Atom's own page uses, just rendered once with fixed illustrative
+   numbers instead of live/interactive state. Those components assume
+   the border-box reset .subnetify-app normally provides (see the
+   .subnetify-app rule far above) and were designed for a full-width
+   panel column — neither is true inside this ~440px-wide modal — so
+   both are re-established locally here. */
+.atom5-hint-visual-box,
+.atom5-hint-visual-box *,
+.atom5-hint-visual-box *::before,
+.atom5-hint-visual-box *::after {
+  box-sizing: border-box;
+}
+.atom5-hint-section-visual {
+  background: var(--bg-surface, var(--surface-hover));
+  padding: 0.9rem 0.6rem 0.7rem;
+}
+.atom5-hint-visual-box {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 4px;
+}
+/* Rather than fight the visualizer's own viewport-width @media
+   breakpoints (which would otherwise try to fit 4 full octets into a
+   modal far narrower than the app's normal content column), the grid
+   is given a sane minimum width and left to scroll horizontally — every
+   bit cell stays legible instead of being squeezed unreadably small. */
+.atom5-hint-visual-box .bit-grid,
+.atom5-hint-visual-box .addr-row {
+  min-width: 380px;
+}
+.atom5-hint-visual-box .mask-binary {
+  min-width: 0;
+}
+/* Static illustration only — these components are normally clickable in
+   their real Atom page, but here there's no click handler attached at
+   all (openAtom5HintModal never wires one up); this just makes that
+   visually obvious too, rather than leaving a "clickable-looking"
+   cursor on an element that does nothing. */
+.atom5-hint-viz-static .bit-cell,
+.atom5-hint-viz-static.bit-grid .bit-cell {
+  cursor: default;
+}
+.atom5-hint-legend {
+  margin-top: 10px;
+  font-size: 0.72rem;
+  gap: 12px;
+}
+
   @media (max-width: 480px) {
     .atom4-boundary-label { align-items: flex-start; flex-direction: column; gap: 3px; }
   }
