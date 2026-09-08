@@ -125,21 +125,25 @@ const QUESTION_CONFIG = {
         enabled: true,
         subTypes: {
             // "How many subnets does this network support?"
-            supported_subnets: { enabled: true, numQuestions: 5, allowedClasses: ['A', 'B', 'C'] },
+            supported_subnets: { enabled: true, numQuestions: 4, allowedClasses: ['A', 'B', 'C'] },
             // "How many usable hosts does each subnet support?"
-            supported_hosts: { enabled: true, numQuestions: 5, allowedClasses: ['B', 'C'] },
+            supported_hosts: { enabled: true, numQuestions: 4, allowedClasses: ['A', 'B', 'C'] },
             // "How many bits must be borrowed?"
-            bits_required: { enabled: true, numQuestions: 5, allowedClasses: ['A', 'B', 'C'] },
+            bits_required: { enabled: true, numQuestions: 4, allowedClasses: ['A', 'B', 'C'] },
             // "What is the subnet mask for this network?"
-            subnet_mask: { enabled: true, numQuestions: 5, allowedClasses: ['B', 'C'] },
+            subnet_mask: { enabled: true, numQuestions: 4, allowedClasses: ['A', 'B', 'C'] },
             // "How many subnets does this produce?" (given a host requirement)
-            subnets_produced: { enabled: true, numQuestions: 5, allowedClasses: ['B', 'C'] },
+            subnets_produced: { enabled: true, numQuestions: 4, allowedClasses: ['A', 'B', 'C'] },
             // "What is the network address of Subnet N?"
-            network_address_of_subnet: { enabled: true, numQuestions: 2, allowedClasses: ['C'] },
+            network_address_of_subnet: { enabled: true, numQuestions: 1, allowedClasses: ['B', 'C'] },
             // "What is the broadcast address of Subnet N?"
-            broadcast_address_of_subnet: { enabled: true, numQuestions: 2, allowedClasses: ['B', 'C'] },
+            broadcast_address_of_subnet: { enabled: true, numQuestions: 1, allowedClasses: ['B', 'C'] },
             // "Which subnet index does this host belong to?"
-            host_belongs_to_subnet: { enabled: true, numQuestions: 1, allowedClasses: ['C'] }
+            host_belongs_to_subnet: { enabled: true, numQuestions: 1, allowedClasses: ['C'] },
+            // "How many bits were borrowed to create this network?"
+            borrowed_bits_from_cidr: { enabled: true, numQuestions: 4, allowedClasses: ['A', 'B', 'C'] },
+            // "What was the original (pre-subnet) classful network bit count?"
+            original_network_bits: { enabled: true, numQuestions: 3, allowedClasses: ['A', 'B', 'C'] }
         }
     },
 
@@ -4515,6 +4519,60 @@ function genAtom5HostBelongsToSubnet(rng, subCfg) {
     };
 }
 
+// Shared scenario builder for the two "read the given classless CIDR"
+// subtypes below: picks a classful base network, borrows a random number
+// of bits, and returns everything both generators need (the classful
+// networkBits, the borrowedBits actually used, and the resulting classless
+// address string) so neither one duplicates the random-value setup.
+function atom5BuildClasslessScenario(rng, subCfg, borrowCap) {
+    const range = pickAtom5ClassRange(rng, subCfg);
+    const baseOctets = atom5RandomClassfulAddress(rng, range);
+    const networkBits = range.cidr;
+    const borrowedBits = atom5PickBorrowedBits(rng, networkBits, borrowCap || 10);
+    const targetCidr = networkBits + borrowedBits;
+    return { range, networkBits, borrowedBits, targetCidr, ipStr: baseOctets.join('.') };
+}
+
+// "Given this classless network (address/CIDR), how many bits were
+// borrowed from the host portion to create it?" — the inverse of
+// bits_required: instead of computing borrowedBits from a subnet/host
+// requirement, the student must read the address's CLASS off its first
+// octet (Class A/B/C -> classful /8, /16, /24), then subtract that from
+// the given CIDR. Deliberately gives only the already-subnetted network —
+// no class label, no classful CIDR — since supplying either would hand the
+// student half the answer for free.
+function genAtom5BorrowedBitsFromCidr(rng, subCfg) {
+    const { networkBits, borrowedBits, targetCidr, ipStr } = atom5BuildClasslessScenario(rng, subCfg, 10);
+    return {
+        subType: 'borrowed_bits_from_cidr',
+        givenLabel: 'Given network',
+        givenValue: ipStr + '/' + targetCidr,
+        taskText: 'How many bits were <b>borrowed</b> from the host portion to create this network?',
+        correct: String(borrowedBits),
+        given: ipStr
+    };
+}
+
+// "Given this classless network (address/CIDR), what was the ORIGINAL
+// (classful, pre-subnet) network bit count?" — the complementary read of
+// the same scenario: rather than the borrowed-bit delta, the student must
+// identify the classful boundary itself (the /8, /16, or /24 the address
+// started from before any bits were borrowed) from the address's class.
+// Uses the same scenario builder as borrowed_bits_from_cidr above so both
+// subtypes test the identical "read the class off the address" skill from
+// two different angles, without ever asking for the same numeric answer.
+function genAtom5OriginalNetworkBits(rng, subCfg) {
+    const { networkBits, targetCidr, ipStr } = atom5BuildClasslessScenario(rng, subCfg, 10);
+    return {
+        subType: 'original_network_bits',
+        givenLabel: 'Given network',
+        givenValue: ipStr + '/' + targetCidr,
+        taskText: 'What was the <b>original classful network bit count</b> — the CIDR before any bits were borrowed?',
+        correct: String(networkBits),
+        given: ipStr
+    };
+}
+
 // Map of subType -> generator function, one entry per distinct question
 // subtype Atom 5 can produce. Keys must match QUESTION_CONFIG.atom5.subTypes
 // and ATOM5_HINTS exactly, since genAtom5Questions below iterates this map
@@ -4528,7 +4586,9 @@ const ATOM5_SUBTYPE_GENERATORS = {
     subnets_produced: (rng, subCfg) => genAtom5SubnetsProduced(rng, subCfg),
     network_address_of_subnet: (rng, subCfg) => genAtom5SubnetAddressQuestion(rng, 'network', subCfg),
     broadcast_address_of_subnet: (rng, subCfg) => genAtom5SubnetAddressQuestion(rng, 'broadcast', subCfg),
-    host_belongs_to_subnet: (rng, subCfg) => genAtom5HostBelongsToSubnet(rng, subCfg)
+    host_belongs_to_subnet: (rng, subCfg) => genAtom5HostBelongsToSubnet(rng, subCfg),
+    borrowed_bits_from_cidr: (rng, subCfg) => genAtom5BorrowedBitsFromCidr(rng, subCfg),
+    original_network_bits: (rng, subCfg) => genAtom5OriginalNetworkBits(rng, subCfg)
 };
 
 // Builds Atom 5's question list from the per-subtype config: for each
@@ -4720,6 +4780,20 @@ const ATOM5_HINTS = {
         ]),
         practiceLabel: 'Atom 3 · The Space Map (Front & Back Subnets)',
         practiceFn: 'showAtom3Page'
+    },
+    borrowed_bits_from_cidr: {
+        formula: 'Borrowed Bits = Given CIDR &minus; Classful Network Bits, where the classful network bits come from the address\'s class (first octet): 1&ndash;126 &rarr; Class A &rarr; /8, 128&ndash;191 &rarr; Class B &rarr; /16, 192&ndash;223 &rarr; Class C &rarr; /24.',
+        example: 'Example: 192.168.1.64/27 starts with 192, a Class C address, so its classful network bits = 24. Borrowed bits = 27 &minus; 24 = 3.',
+        visual: () => buildAtom5HintBitGridHtml(24, 3),
+        practiceLabel: 'Atom 1 · The Constraint (Bit Question)',
+        practiceFn: 'showAtom1Page'
+    },
+    original_network_bits: {
+        formula: 'Classful Network Bits are determined entirely by the address\'s first octet: 1&ndash;126 &rarr; Class A &rarr; /8, 128&ndash;191 &rarr; Class B &rarr; /16, 192&ndash;223 &rarr; Class C &rarr; /24. The given CIDR (after any borrowing) doesn\'t change this.',
+        example: 'Example: 192.168.1.64/27 starts with 192, which falls in the Class C range (192&ndash;223) — so the original classful network was /24, regardless of the /27 it\'s since been subnetted to.',
+        visual: () => buildAtom5HintBitGridHtml(24, 3),
+        practiceLabel: 'Atom 1 · The Constraint (Bit Question)',
+        practiceFn: 'showAtom1Page'
     }
 };
 
