@@ -62,7 +62,7 @@ const QUESTION_CONFIG = {
     // clicking a Panel-2-style bit grid until the requirement is exactly
     // satisfied. Scored like every other phase.
     atom1: {
-        enabled: true,
+        enabled: false,
         numQuestions: 20
     },
 
@@ -72,7 +72,7 @@ const QUESTION_CONFIG = {
     // everything else starts at 0 and toggles independently on click. Graded
     // all-or-nothing, like Atom 1 (1 point total).
     atom2: {
-        enabled: true,
+        enabled: false,
         numQuestions: 20
     },
 
@@ -82,7 +82,7 @@ const QUESTION_CONFIG = {
     // borrowed-bit range (8 rows total). Scored all-or-nothing (1 point),
     // like Atom 2.
     atom3: {
-        enabled: true,
+        enabled: false,
         numQuestions: 5
     },
 
@@ -90,7 +90,7 @@ const QUESTION_CONFIG = {
     // host bits twice: all zeroes for the network ID and all ones for the
     // broadcast address. Host cells cycle ?, 0, 1, ? when clicked.
     atom4: {
-        enabled: true,
+        enabled: false,
         numQuestions: 5
     },
 
