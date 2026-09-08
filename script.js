@@ -101,9 +101,46 @@ const QUESTION_CONFIG = {
     // borrow count, a subnet mask, a network/broadcast address, or a
     // subnet index), graded all-or-nothing like Phase 7's class_cidr
     // questions.
+    //
+    // `enabled` is a master switch for the whole Atom (matches every other
+    // phase/atom's own top-level toggle). Each of the 8 distinct question
+    // subtypes Atom 5 can produce is then independently controllable via
+    // `subTypes` — its own enabled flag, its own numQuestions, and its own
+    // `allowedClasses` — instead of a single pooled numQuestions randomly
+    // picking from all of them. Keys here must match the subType strings
+    // genAtom5* generators emit (see ATOM5_SUBTYPE_GENERATORS below) and
+    // the ATOM5_HINTS keys.
+    //
+    // `allowedClasses` restricts which classful address class(es) — 'A',
+    // 'B', and/or 'C' — that subtype's questions are drawn from. Class is
+    // a major difficulty lever independent of the subtype itself: Class A
+    // leaves up to 24 subnet/host bits to reason about, Class B up to 16,
+    // Class C only 8 — so without pinning this down, two students could be
+    // handed the "same" question type at very different difficulty purely
+    // from random class draw (unfair seeding), rather than from an
+    // intentional difficulty choice. Set to any non-empty subset, e.g.
+    // ['C'] to keep a subtype easy, or ['A','B'] to keep it hard; an empty
+    // array or omitting the field draws from all three classes as before.
     atom5: {
         enabled: true,
-        numQuestions: 30
+        subTypes: {
+            // "How many subnets does this network support?"
+            supported_subnets: { enabled: true, numQuestions: 5, allowedClasses: ['A', 'B', 'C'] },
+            // "How many usable hosts does each subnet support?"
+            supported_hosts: { enabled: true, numQuestions: 5, allowedClasses: ['B', 'C'] },
+            // "How many bits must be borrowed?"
+            bits_required: { enabled: true, numQuestions: 5, allowedClasses: ['A', 'B', 'C'] },
+            // "What is the subnet mask for this network?"
+            subnet_mask: { enabled: true, numQuestions: 5, allowedClasses: ['B', 'C'] },
+            // "How many subnets does this produce?" (given a host requirement)
+            subnets_produced: { enabled: true, numQuestions: 5, allowedClasses: ['B', 'C'] },
+            // "What is the network address of Subnet N?"
+            network_address_of_subnet: { enabled: true, numQuestions: 2, allowedClasses: ['C'] },
+            // "What is the broadcast address of Subnet N?"
+            broadcast_address_of_subnet: { enabled: true, numQuestions: 2, allowedClasses: ['B', 'C'] },
+            // "Which subnet index does this host belong to?"
+            host_belongs_to_subnet: { enabled: true, numQuestions: 1, allowedClasses: ['C'] }
+        }
     },
 
     // Grading
@@ -4250,20 +4287,50 @@ function atom5PickBorrowedBits(rng, networkBits, cap) {
     return randInt(rng, 1, Math.max(1, Math.min(maxBorrow, cap || 8)));
 }
 
+// Filters CLASSFUL_CIDR_RANGES down to just the class(es) a given Atom 5
+// subtype is configured to draw from (QUESTION_CONFIG.atom5.subTypes.
+// <subType>.allowedClasses, e.g. ['B','C']). This exists because class
+// alone drives a big chunk of a question's difficulty — Class A leaves up
+// to 24 host/subnet bits to reason about, Class C only 8 — so without this,
+// two students could get the "same" subtype at wildly different difficulty
+// purely from random class draw, which is an unfair seeding difference
+// rather than a real skill difference. Falls back to the full A/B/C pool
+// whenever allowedClasses is missing, empty, or matches nothing (e.g. a
+// typo'd class letter), so a misconfigured subtype degrades to the old
+// unrestricted behavior instead of silently generating zero questions.
+function atom5FilteredClassRanges(allowedClasses) {
+    if (!Array.isArray(allowedClasses) || !allowedClasses.length) return CLASSFUL_CIDR_RANGES;
+    const filtered = CLASSFUL_CIDR_RANGES.filter(r => allowedClasses.includes(r.cls));
+    return filtered.length ? filtered : CLASSFUL_CIDR_RANGES;
+}
+
+// Single entry point every genAtom5* generator below uses in place of the
+// old bare `pickRandom(rng, CLASSFUL_CIDR_RANGES)` — takes the subtype's
+// own config object (may be undefined, e.g. when called without one) so
+// class restriction is applied uniformly without each generator needing
+// its own filtering logic.
+function pickAtom5ClassRange(rng, subCfg) {
+    return pickRandom(rng, atom5FilteredClassRanges(subCfg && subCfg.allowedClasses));
+}
+
 // --- Individual scenario generators — each returns
 // { subType, promptHtml, correct, given }, drawing fresh random values
 // from the shared rng stream every call. ---
 
 // "Given the following network (CIDR), how many supported subnets/usable
-// hosts does it have?" — a coin flip decides which of the two is asked.
-function genAtom5SupportedCount(rng) {
-    const range = pickRandom(rng, CLASSFUL_CIDR_RANGES);
+// hosts does it have?" — the two flavors (subnets vs. hosts) are now
+// separately controllable subtypes (see QUESTION_CONFIG.atom5.subTypes),
+// so this shared core takes `askHosts` explicitly instead of coin-flipping
+// it internally; genAtom5SupportedSubnets/genAtom5SupportedHosts below are
+// the two subtype-specific entry points actually referenced by
+// ATOM5_SUBTYPE_GENERATORS.
+function genAtom5SupportedCountCore(rng, askHosts, subCfg) {
+    const range = pickAtom5ClassRange(rng, subCfg);
     const baseOctets = atom5RandomClassfulAddress(rng, range);
     const networkBits = range.cidr;
     const borrowedBits = atom5PickBorrowedBits(rng, networkBits, 8);
     const targetCidr = networkBits + borrowedBits;
     const hostBits = 32 - targetCidr;
-    const askHosts = rng() < 0.5;
     const ipStr = baseOctets.join('.');
     const subType = askHosts ? 'supported_hosts' : 'supported_subnets';
     const correct = askHosts
@@ -4284,11 +4351,13 @@ function genAtom5SupportedCount(rng) {
         given: ipStr
     };
 }
+function genAtom5SupportedSubnets(rng, subCfg) { return genAtom5SupportedCountCore(rng, false, subCfg); }
+function genAtom5SupportedHosts(rng, subCfg) { return genAtom5SupportedCountCore(rng, true, subCfg); }
 
 // "How many bits must be borrowed to produce this required subnet/host
 // count?" — Atom 1's own scenario, asked here as plain text entry.
-function genAtom5BitsRequired(rng) {
-    const range = pickRandom(rng, CLASSFUL_CIDR_RANGES);
+function genAtom5BitsRequired(rng, subCfg) {
+    const range = pickAtom5ClassRange(rng, subCfg);
     const baseOctets = atom5RandomClassfulAddress(rng, range);
     const networkBits = range.cidr;
     const totalHostBits = 32 - networkBits;
@@ -4329,8 +4398,8 @@ function genAtom5BitsRequired(rng) {
 
 // "What is the subnet mask of the following IP address?" — Atom 2's own
 // scenario, asked here as plain text entry.
-function genAtom5SubnetMask(rng) {
-    const range = pickRandom(rng, CLASSFUL_CIDR_RANGES);
+function genAtom5SubnetMask(rng, subCfg) {
+    const range = pickAtom5ClassRange(rng, subCfg);
     const baseOctets = atom5RandomClassfulAddress(rng, range);
     const networkBits = range.cidr;
     const borrowedBits = atom5PickBorrowedBits(rng, networkBits, 10);
@@ -4352,28 +4421,52 @@ function genAtom5SubnetMask(rng) {
     };
 }
 
-// "How many subnets are produced by this IP address/CIDR?"
-function genAtom5SubnetsProduced(rng) {
-    const range = pickRandom(rng, CLASSFUL_CIDR_RANGES);
+// "Given a required-hosts-per-subnet constraint, how many subnets does
+// this network produce (borrowing the fewest bits needed to satisfy it)?"
+// Deliberately different from supported_subnets/supported_hosts (which
+// state the classless CIDR directly and ask for a straight 2^n lookup):
+// here only the CLASSFUL network and a host-count requirement are given,
+// so the student must first work out the minimal number of host bits that
+// satisfies the requirement (same reasoning as genAtom5BitsRequired's own
+// 'hosts' branch), derive the implied borrowed-bit count from that, and
+// only then compute 2^borrowedBits — chaining Atom 1's "bits required"
+// skill into a subnet-count answer instead of testing either skill in
+// isolation.
+function genAtom5SubnetsProduced(rng, subCfg) {
+    const range = pickAtom5ClassRange(rng, subCfg);
     const baseOctets = atom5RandomClassfulAddress(rng, range);
     const networkBits = range.cidr;
-    const borrowedBits = atom5PickBorrowedBits(rng, networkBits, 10);
-    const targetCidr = networkBits + borrowedBits;
+    const totalHostBits = 32 - networkBits;
     const ipStr = baseOctets.join('.');
+
+    // Pick a target host-bit width h (bits reserved for hosts) the same
+    // way genAtom5BitsRequired's own 'hosts' branch does, then pick a
+    // required-host count that h satisfies but h-1 would not — so there's
+    // exactly one minimal-bits, and therefore one correct, subnet count.
+    const hCap = Math.min(totalHostBits - 1, 12);
+    const hTarget = randInt(rng, 2, Math.max(2, hCap));
+    const requiredCount = randInt(rng, Math.max(1, Math.pow(2, hTarget - 1) - 1), Math.max(1, Math.pow(2, hTarget) - 2));
+    const borrowedBits = totalHostBits - hTarget;
+    const totalSubnets = Math.pow(2, borrowedBits);
+
     return {
         subType: 'subnets_produced',
         givenLabel: 'Given network',
-        givenValue: ipStr + '/' + targetCidr,
-        taskText: 'How many <b>subnets</b> does this produce?',
-        correct: String(Math.pow(2, borrowedBits)),
+        givenValue: ipStr + '/' + networkBits,
+        targetLabel: 'Each subnet must support at least',
+        targetValue: requiredCount,
+        targetSuffix: 'usable host' + (requiredCount === 1 ? '' : 's'),
+        targetIcon: 'fa-house-user',
+        taskText: 'Borrowing the fewest bits needed to meet this, how many <b>subnets</b> does this network produce?',
+        correct: String(totalSubnets),
         given: ipStr
     };
 }
 
 // "What is the network/broadcast address of subnet N?" — `which` is
 // 'network' or 'broadcast'.
-function genAtom5SubnetAddressQuestion(rng, which) {
-    const range = pickRandom(rng, CLASSFUL_CIDR_RANGES);
+function genAtom5SubnetAddressQuestion(rng, which, subCfg) {
+    const range = pickAtom5ClassRange(rng, subCfg);
     const baseOctets = atom5RandomClassfulAddress(rng, range);
     const networkBits = range.cidr;
     const borrowedBits = atom5PickBorrowedBits(rng, networkBits, 8);
@@ -4397,8 +4490,8 @@ function genAtom5SubnetAddressQuestion(rng, which) {
 }
 
 // "In what subnet does this host IP address belong?"
-function genAtom5HostBelongsToSubnet(rng) {
-    const range = pickRandom(rng, CLASSFUL_CIDR_RANGES);
+function genAtom5HostBelongsToSubnet(rng, subCfg) {
+    const range = pickAtom5ClassRange(rng, subCfg);
     const baseOctets = atom5RandomClassfulAddress(rng, range);
     const networkBits = range.cidr;
     const borrowedBits = atom5PickBorrowedBits(rng, networkBits, 6);
@@ -4422,28 +4515,53 @@ function genAtom5HostBelongsToSubnet(rng) {
     };
 }
 
-// Pool of generator functions — one is picked per question, and each
-// picked generator draws fresh random values itself, so every call
-// produces a different scenario even if the same generator is chosen
-// twice in a row.
-const ATOM5_GENERATORS = [
-    rng => genAtom5SupportedCount(rng),
-    rng => genAtom5BitsRequired(rng),
-    rng => genAtom5SubnetMask(rng),
-    rng => genAtom5SubnetsProduced(rng),
-    rng => genAtom5SubnetAddressQuestion(rng, 'network'),
-    rng => genAtom5SubnetAddressQuestion(rng, 'broadcast'),
-    rng => genAtom5HostBelongsToSubnet(rng)
-];
+// Map of subType -> generator function, one entry per distinct question
+// subtype Atom 5 can produce. Keys must match QUESTION_CONFIG.atom5.subTypes
+// and ATOM5_HINTS exactly, since genAtom5Questions below iterates this map
+// keyed off that shared config, and openAtom5HintModal looks up hints by
+// the same subType string each generator returns.
+const ATOM5_SUBTYPE_GENERATORS = {
+    supported_subnets: (rng, subCfg) => genAtom5SupportedSubnets(rng, subCfg),
+    supported_hosts: (rng, subCfg) => genAtom5SupportedHosts(rng, subCfg),
+    bits_required: (rng, subCfg) => genAtom5BitsRequired(rng, subCfg),
+    subnet_mask: (rng, subCfg) => genAtom5SubnetMask(rng, subCfg),
+    subnets_produced: (rng, subCfg) => genAtom5SubnetsProduced(rng, subCfg),
+    network_address_of_subnet: (rng, subCfg) => genAtom5SubnetAddressQuestion(rng, 'network', subCfg),
+    broadcast_address_of_subnet: (rng, subCfg) => genAtom5SubnetAddressQuestion(rng, 'broadcast', subCfg),
+    host_belongs_to_subnet: (rng, subCfg) => genAtom5HostBelongsToSubnet(rng, subCfg)
+};
 
+// Builds Atom 5's question list from the per-subtype config: for each
+// subType with its own `enabled: true` and a positive `numQuestions`, runs
+// that subtype's generator exactly that many times, passing the subtype's
+// own config object through so the generator can honor `allowedClasses`
+// (each call still draws fresh random values from the shared rng stream,
+// so repeats of the same subtype never produce identical questions). The
+// combined list is then shuffled — deterministically, using the same
+// seeded rng — so questions of different subtypes interleave in the final
+// order instead of being grouped block-by-block by subtype.
 function genAtom5Questions(cfg, rng) {
-    if (!cfg || !cfg.enabled || !cfg.numQuestions) return [];
+    if (!cfg || !cfg.enabled) return [];
+    const subTypesCfg = cfg.subTypes || {};
     const out = [];
-    for (let i = 0; i < cfg.numQuestions; i++) {
-        const generator = pickRandom(rng, ATOM5_GENERATORS);
-        const q = generator(rng);
-        out.push(Object.assign({ type: 'atom5' }, q));
+
+    Object.keys(ATOM5_SUBTYPE_GENERATORS).forEach(subType => {
+        const subCfg = subTypesCfg[subType];
+        if (!subCfg || !subCfg.enabled || !subCfg.numQuestions) return;
+        const generator = ATOM5_SUBTYPE_GENERATORS[subType];
+        for (let i = 0; i < subCfg.numQuestions; i++) {
+            out.push(Object.assign({ type: 'atom5' }, generator(rng, subCfg)));
+        }
+    });
+
+    // Fisher-Yates shuffle using the same rng stream (consistent with
+    // genPhase7Questions' own shuffle above) so the interleaved order is
+    // still fully deterministic per seed.
+    for (let i = out.length - 1; i > 0; i--) {
+        const j = Math.floor(rng() * (i + 1));
+        [out[i], out[j]] = [out[j], out[i]];
     }
+
     return out;
 }
 
@@ -4564,10 +4682,10 @@ const ATOM5_HINTS = {
         practiceFn: 'showAtom2Page'
     },
     subnets_produced: {
-        formula: 'Total Subnets = 2<sup>borrowed bits</sup>, where borrowed bits = target CIDR &minus; classful network bits.',
-        example: 'Example: a Class C (/24) network subnetted to /27 borrows 3 bits, producing 2<sup>3</sup> = 8 subnets.',
-        visual: () => buildAtom5HintBitGridHtml(24, 3),
-        practiceLabel: 'Atom 1 · The Constraint (Bit Question) or Atom 3 · The Space Map',
+        formula: 'Step 1: find the smallest host-bit width h where 2<sup>h</sup> &minus; 2 &ge; required hosts per subnet.<br>Step 2: Borrowed Bits = Total Host Bits &minus; h.<br>Step 3: Total Subnets = 2<sup>borrowed bits</sup>.',
+        example: 'Example: a Class C (/24) network has 8 host bits. If each subnet must support at least 10 usable hosts, h = 4 gives 2<sup>4</sup> &minus; 2 = 14 (enough), so 8 &minus; 4 = 4 bits are borrowed, producing 2<sup>4</sup> = 16 subnets.',
+        visual: () => buildAtom5HintBitGridHtml(24, 4),
+        practiceLabel: 'Atom 1 · The Constraint (Bit Question)',
         practiceFn: 'showAtom1Page'
     },
     network_address_of_subnet: {
