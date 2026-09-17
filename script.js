@@ -62,8 +62,8 @@ const QUESTION_CONFIG = {
     // clicking a Panel-2-style bit grid until the requirement is exactly
     // satisfied. Scored like every other phase.
     atom1: {
-        enabled: false,
-        numQuestions: 20
+        enabled: true,
+        numQuestions: 10
     },
 
     // Atom 2: The Mask Assembly (Interesting Octet) — given a host IP and a
@@ -72,8 +72,8 @@ const QUESTION_CONFIG = {
     // everything else starts at 0 and toggles independently on click. Graded
     // all-or-nothing, like Atom 1 (1 point total).
     atom2: {
-        enabled: false,
-        numQuestions: 20
+        enabled: true,
+        numQuestions: 10
     },
 
     // Atom 3: The Space Map (Front & Back Subnets) — given a classful
@@ -82,16 +82,16 @@ const QUESTION_CONFIG = {
     // borrowed-bit range (8 rows total). Scored all-or-nothing (1 point),
     // like Atom 2.
     atom3: {
-        enabled: false,
-        numQuestions: 5
+        enabled: true,
+        numQuestions: 2
     },
 
     // Atom 4: The Boundaries — given one subnet ID, fill the remaining
     // host bits twice: all zeroes for the network ID and all ones for the
     // broadcast address. Host cells cycle ?, 0, 1, ? when clicked.
     atom4: {
-        enabled: false,
-        numQuestions: 5
+        enabled: true,
+        numQuestions: 2
     },
 
     // Atom 5: Applied Scenarios — combines Atoms 1-4's underlying skills
@@ -125,25 +125,25 @@ const QUESTION_CONFIG = {
         enabled: true,
         subTypes: {
             // "How many subnets does this network support?"
-            supported_subnets: { enabled: true, numQuestions: 4, allowedClasses: ['A', 'B', 'C'] },
+            supported_subnets: { enabled: true, numQuestions: 10, allowedClasses: ['A', 'B', 'C'] },
             // "How many usable hosts does each subnet support?"
-            supported_hosts: { enabled: true, numQuestions: 4, allowedClasses: ['A', 'B', 'C'] },
+            supported_hosts: { enabled: true, numQuestions: 10, allowedClasses: ['A', 'B', 'C'] },
             // "How many bits must be borrowed?"
-            bits_required: { enabled: true, numQuestions: 4, allowedClasses: ['A', 'B', 'C'] },
+            bits_required: { enabled: true, numQuestions: 10, allowedClasses: ['A', 'B', 'C'] },
             // "What is the subnet mask for this network?"
-            subnet_mask: { enabled: true, numQuestions: 4, allowedClasses: ['A', 'B', 'C'] },
+            subnet_mask: { enabled: true, numQuestions: 5, allowedClasses: ['A', 'B', 'C'] },
             // "How many subnets does this produce?" (given a host requirement)
-            subnets_produced: { enabled: true, numQuestions: 4, allowedClasses: ['A', 'B', 'C'] },
+            subnets_produced: { enabled: true, numQuestions: 3, allowedClasses: ['A', 'B', 'C'] },
             // "What is the network address of Subnet N?"
-            network_address_of_subnet: { enabled: true, numQuestions: 1, allowedClasses: ['B', 'C'] },
+            network_address_of_subnet: { enabled: true, numQuestions: 2, allowedClasses: ['B', 'C'] },
             // "What is the broadcast address of Subnet N?"
-            broadcast_address_of_subnet: { enabled: true, numQuestions: 1, allowedClasses: ['B', 'C'] },
+            broadcast_address_of_subnet: { enabled: true, numQuestions: 3, allowedClasses: ['C'] },
             // "Which subnet index does this host belong to?"
-            host_belongs_to_subnet: { enabled: true, numQuestions: 1, allowedClasses: ['C'] },
+            host_belongs_to_subnet: { enabled: true, numQuestions: 2, allowedClasses: ['C'] },
             // "How many bits were borrowed to create this network?"
-            borrowed_bits_from_cidr: { enabled: true, numQuestions: 4, allowedClasses: ['A', 'B', 'C'] },
+            borrowed_bits_from_cidr: { enabled: true, numQuestions: 3, allowedClasses: ['A', 'B', 'C'] },
             // "What was the original (pre-subnet) classful network bit count?"
-            original_network_bits: { enabled: true, numQuestions: 3, allowedClasses: ['A', 'B', 'C'] }
+            original_network_bits: { enabled: true, numQuestions: 2, allowedClasses: ['A', 'B', 'C'] }
         }
     },
 
@@ -158,8 +158,8 @@ let currentUser = "";
 
 // Settings and Mode Management
 let appSettings = {
-    mode: 'practice', // 'practice' or 'exam'
-    timerMinutes: 10,
+    mode: 'exam', // 'practice' or 'exam'
+    timerMinutes: 90,
     autoShowSample: true, // whether the console panel auto-opens when an exercise has sample output; device-based default set below
     practiceQuestionMode: 'fixed' // 'fixed' (same set every time — legacy behavior) or 'random' (fresh set each practice session)
 };
