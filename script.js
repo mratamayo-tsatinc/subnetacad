@@ -98,7 +98,7 @@ const QUESTION_CONFIG = {
         // that class's weight is dropped and the rest are renormalized
         // (see filterAtom3ClassWeights), so the remaining classes' relative
         // odds are preserved rather than just losing the excluded share.
-        allowedClasses: ['A', 'B', 'C']
+        allowedClasses: ['B', 'C']
     },
 
     // Atom 4: The Boundaries — given one subnet ID, fill the remaining
@@ -106,12 +106,12 @@ const QUESTION_CONFIG = {
     // broadcast address. Host cells cycle ?, 0, 1, ? when clicked.
     atom4: {
         enabled: true,
-        numQuestions: 2,
+        numQuestions: 1,
         // Restricts which classful class(es) Atom 4 draws from. Atom 4
         // normally sequences mostly-C -> B -> at most one A (see
         // atom4ClassRangeForQuestion) — when allowedClasses excludes a
         // class, that class is skipped in the sequence entirely.
-        allowedClasses: ['A', 'B', 'C']
+        allowedClasses: ['C']
     },
 
     // Atom 5: Applied Scenarios — combines Atoms 1-4's underlying skills
