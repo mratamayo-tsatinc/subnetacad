@@ -1169,6 +1169,21 @@ body.exam-mode .bit-place-value {
     visibility: hidden;
 }
 
+/* --- EXAM MODE: HIDE SUBNET VISUALIZER ---
+   The Subnet Visualizer is an ungraded, free-exploration tool that lets a
+   student directly drag the CIDR boundary and watch every derived value
+   (mask, subnet count, host ranges) update live — a great practice aid,
+   but exactly the kind of on-demand answer calculator a timed assessment
+   shouldn't leave reachable. Hidden via the same body-level class every
+   other exam-mode restriction in this file uses (see loadAllExercises in
+   script.js), so its sidebar entry disappears the instant exam mode is
+   active. The corresponding JS guard (showSubnetVisualizer in script.js)
+   redirects away from the tool if it's ever reached anyway — this rule
+   just keeps the entry point itself out of sight. */
+body.exam-mode #nav-subnetVisualizer {
+    display: none;
+}
+
 .answer-input-num {
     width: 140px;
     padding: 10px 14px;

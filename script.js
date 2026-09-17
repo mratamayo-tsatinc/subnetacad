@@ -63,7 +63,12 @@ const QUESTION_CONFIG = {
     // satisfied. Scored like every other phase.
     atom1: {
         enabled: true,
-        numQuestions: 10
+        numQuestions: 10,
+        // Restricts which classful address class(es) — 'A', 'B', and/or
+        // 'C' — Atom 1's questions are drawn from. Same semantics as Atom
+        // 5's own per-subtype allowedClasses: an empty array or omitting
+        // this field draws from all three classes as before.
+        allowedClasses: ['A', 'B', 'C']
     },
 
     // Atom 2: The Mask Assembly (Interesting Octet) — given a host IP and a
@@ -73,7 +78,10 @@ const QUESTION_CONFIG = {
     // all-or-nothing, like Atom 1 (1 point total).
     atom2: {
         enabled: true,
-        numQuestions: 10
+        numQuestions: 10,
+        // See Atom 1's own allowedClasses comment above — identical
+        // semantics here.
+        allowedClasses: ['A', 'B', 'C']
     },
 
     // Atom 3: The Space Map (Front & Back Subnets) — given a classful
@@ -83,7 +91,14 @@ const QUESTION_CONFIG = {
     // like Atom 2.
     atom3: {
         enabled: true,
-        numQuestions: 2
+        numQuestions: 2,
+        // Restricts which classful class(es) Atom 3 draws from. Atom 3
+        // normally weights toward Class C for pedagogical reasons (see
+        // ATOM3_CLASS_WEIGHTS) — when allowedClasses excludes a class,
+        // that class's weight is dropped and the rest are renormalized
+        // (see filterAtom3ClassWeights), so the remaining classes' relative
+        // odds are preserved rather than just losing the excluded share.
+        allowedClasses: ['A', 'B', 'C']
     },
 
     // Atom 4: The Boundaries — given one subnet ID, fill the remaining
@@ -91,7 +106,12 @@ const QUESTION_CONFIG = {
     // broadcast address. Host cells cycle ?, 0, 1, ? when clicked.
     atom4: {
         enabled: true,
-        numQuestions: 2
+        numQuestions: 2,
+        // Restricts which classful class(es) Atom 4 draws from. Atom 4
+        // normally sequences mostly-C -> B -> at most one A (see
+        // atom4ClassRangeForQuestion) — when allowedClasses excludes a
+        // class, that class is skipped in the sequence entirely.
+        allowedClasses: ['A', 'B', 'C']
     },
 
     // Atom 5: Applied Scenarios — combines Atoms 1-4's underlying skills
@@ -645,6 +665,24 @@ const CLASSFUL_CIDR_RANGES = [
     { cls: 'C', min: 192, max: 223, cidr: 24 }
 ];
 
+// Filters CLASSFUL_CIDR_RANGES down to just the class(es) an atom/subtype
+// is configured to draw from (e.g. QUESTION_CONFIG.atom1.allowedClasses or
+// QUESTION_CONFIG.atom5.subTypes.<subType>.allowedClasses — same shape,
+// same rule, shared by every Atom). Class alone drives a big chunk of a
+// question's difficulty — Class A leaves up to 24 subnet/host bits to
+// reason about, Class C only 8 — so without this, two students could get
+// "the same" question type at wildly different difficulty purely from
+// random class draw, which is an unfair seeding difference rather than a
+// real skill difference. Falls back to the full A/B/C pool whenever
+// allowedClasses is missing, empty, or matches nothing (e.g. a typo'd
+// class letter), so a misconfigured atom degrades to the old unrestricted
+// behavior instead of silently generating zero questions.
+function filterClassRangesByAllowed(allowedClasses) {
+    if (!Array.isArray(allowedClasses) || !allowedClasses.length) return CLASSFUL_CIDR_RANGES;
+    const filtered = CLASSFUL_CIDR_RANGES.filter(r => allowedClasses.includes(r.cls));
+    return filtered.length ? filtered : CLASSFUL_CIDR_RANGES;
+}
+
 function randomIPInRange(rng, range) {
     const firstOctet = randInt(rng, range.min, range.max);
     const rest = [randInt(rng, 0, 255), randInt(rng, 0, 255), randInt(rng, 0, 255)];
@@ -690,8 +728,9 @@ function genPhase7Questions(cfg, rng) {
 function genAtom1Questions(cfg, rng) {
     if (!cfg || !cfg.enabled || !cfg.numQuestions) return [];
     const out = [];
+    const classRanges = filterClassRangesByAllowed(cfg.allowedClasses);
     for (let i = 0; i < cfg.numQuestions; i++) {
-        const range = pickRandom(rng, CLASSFUL_CIDR_RANGES);
+        const range = pickRandom(rng, classRanges);
         const networkBits = range.cidr;
         const editableCount = networkBits / 8; // matches SubnetVisualizer's syncOctetLocking
 
@@ -869,9 +908,10 @@ function genAtom2Questions(cfg, rng) {
     if (!cfg || !cfg.enabled || !cfg.numQuestions) return [];
     const out = [];
     const maxCidr = 30; // leave >= 2 host bits, same convention as Atom 1's maxBorrow cap
+    const classRanges = filterClassRangesByAllowed(cfg.allowedClasses);
 
     for (let i = 0; i < cfg.numQuestions; i++) {
-        const range = pickRandom(rng, CLASSFUL_CIDR_RANGES);
+        const range = pickRandom(rng, classRanges);
         const networkBits = range.cidr;
 
         // A full random host IP (not a zeroed network address) — Atom 2's
@@ -961,21 +1001,58 @@ const ATOM3_CLASS_WEIGHTS = [
     { range: CLASSFUL_CIDR_RANGES[0], weight: 0.15 }  // A
 ];
 
-function pickAtom3ClassRange(rng) {
+// Filters ATOM3_CLASS_WEIGHTS down to just the class(es) allowedClasses
+// permits, then renormalizes the remaining weights so they still sum to
+// 1 — e.g. excluding A from the default set leaves C:0.55/B:0.30, which
+// renormalize to roughly C:0.65/B:0.35, preserving C's lead over B rather
+// than just dropping A's share on the floor (which would silently make
+// every question easier than intended). Falls back to the full,
+// unfiltered weight table when allowedClasses is missing/empty/matches
+// nothing, same convention as filterClassRangesByAllowed.
+function filterAtom3ClassWeights(allowedClasses) {
+    if (!Array.isArray(allowedClasses) || !allowedClasses.length) return ATOM3_CLASS_WEIGHTS;
+    const filtered = ATOM3_CLASS_WEIGHTS.filter(entry => allowedClasses.includes(entry.range.cls));
+    if (!filtered.length) return ATOM3_CLASS_WEIGHTS;
+    const totalWeight = filtered.reduce((sum, entry) => sum + entry.weight, 0);
+    return filtered.map(entry => ({ range: entry.range, weight: entry.weight / totalWeight }));
+}
+
+function pickAtom3ClassRange(rng, allowedClasses) {
+    const weights = filterAtom3ClassWeights(allowedClasses);
     const r = rng();
     let acc = 0;
-    for (const entry of ATOM3_CLASS_WEIGHTS) {
+    for (const entry of weights) {
         acc += entry.weight;
         if (r < acc) return entry.range;
     }
-    return ATOM3_CLASS_WEIGHTS[ATOM3_CLASS_WEIGHTS.length - 1].range;
+    return weights[weights.length - 1].range;
 }
 
 // Atom 4 is deliberately sequenced instead of randomly weighted: its
 // boundary task is more demanding than Atom 3's, so practice should teach
 // the pattern with mostly Class C questions, then introduce Class B, and
 // finish with at most one Class A question.
-function atom4ClassRangeForQuestion(index, totalQuestions) {
+// Easiest-to-hardest order for Atom 4's boundary task (C: single, always-
+// editable last octet; B: a step up; A: 24 bits of borrowable host space,
+// hardest) — the same difficulty ordering Atom 3's own weights use.
+const ATOM4_DIFFICULTY_ORDER = [CLASSFUL_CIDR_RANGES[2], CLASSFUL_CIDR_RANGES[1], CLASSFUL_CIDR_RANGES[0]]; // C, B, A
+
+function atom4ClassRangeForQuestion(index, totalQuestions, allowedClasses) {
+    const allowed = filterClassRangesByAllowed(allowedClasses);
+    const ranges = ATOM4_DIFFICULTY_ORDER.filter(r => allowed.includes(r));
+
+    if (ranges.length <= 1) return ranges[0] || CLASSFUL_CIDR_RANGES[2];
+
+    if (ranges.length === 2) {
+        // Only two classes allowed: mostly the easier one, same "mostly
+        // easy, a few hard" shape as the three-class case below, scaled
+        // down to two buckets instead of three.
+        const easyCount = Math.max(1, Math.ceil(totalQuestions * 0.8));
+        return index < easyCount ? ranges[0] : ranges[1];
+    }
+
+    // All three classes allowed: original sequencing — mostly Class C,
+    // then Class B, then at most one Class A question at the very end.
     const classACount = totalQuestions > 0 ? 1 : 0;
     const nonClassACount = Math.max(0, totalQuestions - classACount);
     const classCCount = Math.max(1, Math.ceil(nonClassACount * 0.7));
@@ -991,7 +1068,7 @@ function genAtom3Questions(cfg, rng) {
     const maxBorrowCap = 10; // keep the target CIDR classroom-sized regardless of class
 
     for (let i = 0; i < cfg.numQuestions; i++) {
-        const range = pickAtom3ClassRange(rng);
+        const range = pickAtom3ClassRange(rng, cfg.allowedClasses);
         const networkBits = range.cidr;
         const editableCount = networkBits / 8; // matches Atom 1/2's own classful-address convention
 
@@ -1031,7 +1108,7 @@ function genAtom4Questions(cfg, rng) {
     const maxBorrowCap = 10;
 
     for (let i = 0; i < cfg.numQuestions; i++) {
-        const range = atom4ClassRangeForQuestion(i, cfg.numQuestions);
+        const range = atom4ClassRangeForQuestion(i, cfg.numQuestions, cfg.allowedClasses);
         const networkBits = range.cidr;
         const editableCount = networkBits / 8;
         const octets = [0, 0, 0, 0];
@@ -1243,12 +1320,15 @@ async function loadAllExercises() {
     syncAtom5ViewDOM();
 
     // Default landing page after login: the ungraded Subnet Visualizer
-    // tool, not the first graded exercise. A fresh login should drop the
-    // student somewhere exploratory/orienting rather than straight into
-    // a timed or scored question. This also covers the (now-typical) case
-    // where every Phase 1-7 exercise is disabled and the Exercises list
-    // is empty, so there'd otherwise be nothing to auto-select at all.
-    showSubnetVisualizer();
+    // tool in Practice Mode, so a fresh login drops the student somewhere
+    // exploratory/orienting rather than straight into a scored question.
+    // Exam Mode skips the visualizer entirely (see showDefaultLandingPage)
+    // since it's an on-demand answer calculator that has no place in a
+    // timed assessment — it lands on the first Atom/exercise that actually
+    // has questions instead. This also covers the (now-typical) case where
+    // every Phase 1-7 exercise is disabled and the Exercises list is
+    // empty, so there'd otherwise be nothing to auto-select at all.
+    showDefaultLandingPage();
 
     // Attach action button handler (delegates to verify or reset depending on locked state)
     document.getElementById('actionButton').addEventListener('click', () => {
@@ -4291,30 +4371,15 @@ function atom5PickBorrowedBits(rng, networkBits, cap) {
     return randInt(rng, 1, Math.max(1, Math.min(maxBorrow, cap || 8)));
 }
 
-// Filters CLASSFUL_CIDR_RANGES down to just the class(es) a given Atom 5
-// subtype is configured to draw from (QUESTION_CONFIG.atom5.subTypes.
-// <subType>.allowedClasses, e.g. ['B','C']). This exists because class
-// alone drives a big chunk of a question's difficulty — Class A leaves up
-// to 24 host/subnet bits to reason about, Class C only 8 — so without this,
-// two students could get the "same" subtype at wildly different difficulty
-// purely from random class draw, which is an unfair seeding difference
-// rather than a real skill difference. Falls back to the full A/B/C pool
-// whenever allowedClasses is missing, empty, or matches nothing (e.g. a
-// typo'd class letter), so a misconfigured subtype degrades to the old
-// unrestricted behavior instead of silently generating zero questions.
-function atom5FilteredClassRanges(allowedClasses) {
-    if (!Array.isArray(allowedClasses) || !allowedClasses.length) return CLASSFUL_CIDR_RANGES;
-    const filtered = CLASSFUL_CIDR_RANGES.filter(r => allowedClasses.includes(r.cls));
-    return filtered.length ? filtered : CLASSFUL_CIDR_RANGES;
-}
-
 // Single entry point every genAtom5* generator below uses in place of the
 // old bare `pickRandom(rng, CLASSFUL_CIDR_RANGES)` — takes the subtype's
 // own config object (may be undefined, e.g. when called without one) so
 // class restriction is applied uniformly without each generator needing
-// its own filtering logic.
+// its own filtering logic. Uses the same filterClassRangesByAllowed helper
+// Atoms 1-4 now use (defined earlier, next to CLASSFUL_CIDR_RANGES) so all
+// five Atoms share one implementation of "restrict to these classes."
 function pickAtom5ClassRange(rng, subCfg) {
-    return pickRandom(rng, atom5FilteredClassRanges(subCfg && subCfg.allowedClasses));
+    return pickRandom(rng, filterClassRangesByAllowed(subCfg && subCfg.allowedClasses));
 }
 
 // --- Individual scenario generators — each returns
@@ -5997,12 +6062,74 @@ function updateSummaryPanel() {
     }
 }
 
+// --- MODE-AWARE DEFAULT LANDING PAGE ---
+// Practice Mode lands on the ungraded Subnet Visualizer (exploratory,
+// no stakes). Exam Mode must never land there — it's a live answer
+// calculator, the opposite of what a timed assessment should hand a
+// student by default — so instead this walks the Atoms in order and
+// opens the first one that actually has generated questions (an Atom
+// with numQuestions: 0 or enabled: false produces none, per
+// buildAtomNQuestionList). If literally no Atom has questions, it falls
+// back to the first item in the graded Exercises list, and if THAT'S
+// empty too, leaves the exerciseArea's own "Select an Exercise" empty
+// state showing rather than opening anything.
+function showDefaultLandingPage() {
+    if (appSettings.mode !== 'exam') {
+        showSubnetVisualizer();
+        return;
+    }
+
+    const atomPages = [
+        ['atom1', showAtom1Page],
+        ['atom2', showAtom2Page],
+        ['atom3', showAtom3Page],
+        ['atom4', showAtom4Page],
+        ['atom5', showAtom5Page]
+    ];
+    for (const [key, showFn] of atomPages) {
+        const hasQuestions = Object.keys(exerciseData).some(file => file.indexOf(key + '-q') === 0);
+        if (hasQuestions) {
+            showFn();
+            return;
+        }
+    }
+
+    const firstExerciseLi = document.querySelector('#fileList li:not(.sidebar-phase-header)');
+    if (firstExerciseLi) {
+        firstExerciseLi.click();
+        return;
+    }
+
+    // Nothing scored is configured at all — show the empty "Select an
+    // Exercise" state instead of leaving every view hidden.
+    document.querySelectorAll('.sidebar li').forEach(l => l.classList.remove('active'));
+    hideAllAtomPaginationBars();
+    document.getElementById('subnetVisualizerView').style.display = 'none';
+    document.getElementById('atomPlaceholderView').style.display = 'none';
+    ['atom1View', 'atom2View', 'atom3View', 'atom4View', 'atom5View'].forEach(id => {
+        document.getElementById(id).style.display = 'none';
+    });
+    document.getElementById('exerciseArea').style.display = 'block';
+    currentFile = '';
+}
+
 // --- SUBNET VISUALIZER (ungraded tool) — sidebar view toggle ---
 // Swaps the main content column between the graded exercise view and the
 // Subnetify panels. Lazily initializes the visualizer engine on first
 // open (its DOM already exists, just hidden, so this only wires up event
 // listeners + does the first render — see SubnetVisualizer.init's guard).
 function showSubnetVisualizer() {
+    // Ungraded, free-exploration tool — unavailable during a timed exam
+    // (its sidebar entry is also hidden via CSS, see body.exam-mode
+    // #nav-subnetVisualizer in styles.css). This guard covers any other
+    // way the function might still get called — a stale reference, the
+    // browser back button, etc. — by redirecting to the same mode-aware
+    // fallback the login flow itself uses.
+    if (appSettings.mode === 'exam') {
+        showDefaultLandingPage();
+        return;
+    }
+
     document.querySelectorAll('.sidebar li').forEach(l => l.classList.remove('active'));
     const navItem = document.getElementById('nav-subnetVisualizer');
     if (navItem) navItem.classList.add('active');
